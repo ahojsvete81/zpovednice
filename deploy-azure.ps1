@@ -44,4 +44,7 @@ az webapp deploy `
     --async false `
     --track-status false
 
+Write-Host "Restarting App Service to activate new release..." -ForegroundColor Cyan
+az webapp restart --resource-group $ResourceGroup --name $WebAppName
+
 Write-Host "Done! Live URL: https://$WebAppName.azurewebsites.net" -ForegroundColor Green
