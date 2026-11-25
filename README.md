@@ -41,3 +41,14 @@ cd frontend
 npm run dev
 ```
 Otevři [http://localhost:5173](http://localhost:5173).
+
+## Nasazení na Azure (Testovací prostředí)
+- **Live URL:** https://app-zpovednice-dev.azurewebsites.net
+- **Resource Group:** `rg-zpovednice` (`polandcentral`)
+- **App Service:** `app-zpovednice-dev` (Linux, `.NET 10`, hostuje API i React SPA ze složky `wwwroot`)
+- **Azure SQL Database:** `sql-zpovednice-dev-jb.database.windows.net` / `ZpovedniceDb`
+
+Opakované nasazení po změnách v kódu jedním příkazem:
+```powershell
+.\deploy-azure.ps1
+```

@@ -8,6 +8,9 @@ obj/
 .vs/
 appsettings.Development.json
 appsettings.Local.json
+backend/wwwroot/
+deploy-pkg/
+deploy.zip
 
 # Node / React / Vite
 node_modules/

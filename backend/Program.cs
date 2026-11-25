@@ -19,13 +19,15 @@ var connectionString = builder.Configuration.GetConnectionString("DefaultConnect
     ?? "Server=localhost;Database=ZpovedniceDb;Trusted_Connection=True;TrustServerCertificate=True;MultipleActiveResultSets=true";
 
 builder.Services.AddDbContext<ZpovedniceDbContext>(options =>
-    options.UseSqlServer(connectionString));
+    options.UseSqlServer(connectionString, sql => sql.EnableRetryOnFailure(5, TimeSpan.FromSeconds(5), null)));
 
 builder.Services.AddSingleton<SafetyGuardrailService>();
 builder.Services.AddHttpClient<AiConfessorService>();
 
 var app = builder.Build();
 app.UseCors();
+app.UseDefaultFiles();
+app.UseStaticFiles();
 
 // Initialize MSSQL Database & Seed Sin Wall
 using (var scope = app.Services.CreateScope())
@@ -45,7 +47,7 @@ api.MapGet("/health", async (ZpovedniceDbContext db, AiConfessorService ai) =>
     return Results.Ok(new
     {
         status = canConnect ? "ok" : "degraded",
-        database = "SQL Server (localhost / ZpovedniceDb)",
+        database = "SQL Server / ZpovedniceDb",
         dbConnected = canConnect,
         sinWallCount = wallCount,
         aiMode = ai.IsLiveAiConfigured ? "live-llm" : "crafted-czech-demo",
@@ -430,6 +432,8 @@ api.MapPost("/wall", async (PublishSinWallRequest req, ZpovedniceDbContext db, S
         entry.Id, entry.ConfessionText, entry.PersonaName, entry.SinIndex,
         entry.Archetype, entry.Category, entry.ForgivenCount, entry.HellCount, entry.CreatedAt));
 });
+
+app.MapFallbackToFile("index.html");
 
 app.Run();
 
