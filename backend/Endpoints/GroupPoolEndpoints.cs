@@ -606,10 +606,11 @@ public static class GroupPoolEndpoints
         var memberMap = members.ToDictionary(m => m.Id);
         var me = members.FirstOrDefault(m => m.ClientId == clientId);
 
-        var openSparks = await db.PoolSparks
-            .Where(s => s.PoolCode == pool.PoolCode && s.Status == "Open")
+        var allSparks = await db.PoolSparks
+            .Where(s => s.PoolCode == pool.PoolCode)
             .OrderByDescending(s => s.CreatedAt)
             .ToListAsync();
+        var openSparks = allSparks.Where(s => s.Status == "Open").ToList();
 
         var sparkIds = openSparks.Select(s => s.Id).ToList();
         var catches = sparkIds.Count > 0
@@ -618,6 +619,7 @@ public static class GroupPoolEndpoints
 
         var allChambers = await db.MaskChambers.Where(c => c.PoolCode == pool.PoolCode).ToListAsync();
         var activeChambersCount = allChambers.Count(c => c.Stage is >= 1 and <= 3);
+        var burnedChambersCount = allChambers.Count(c => c.Stage == 9);
         var completedRendezvousCount = allChambers.Count(c => c.Stage == 4);
 
         var sparkDtos = new List<PoolSparkDto>();
@@ -740,7 +742,9 @@ public static class GroupPoolEndpoints
             ExpiresAt: pool.ExpiresAt,
             MemberCount: members.Count,
             OpenSparksCount: openSparks.Count,
+            TotalSparksCount: allSparks.Count,
             ActiveChambersCount: activeChambersCount,
+            BurnedChambersCount: burnedChambersCount,
             CompletedRendezvousCount: completedRendezvousCount,
             Me: me is null ? null : new PoolMemberMeDto(me.Id, me.MaskName, me.MaskSymbol, ParseMaskStyle(me.MaskStyleJson), me.Gender, me.Seeking, me.Clue1, me.GoldenMatchesLeft),
             Sparks: sparkDtos,

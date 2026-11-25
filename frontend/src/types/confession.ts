@@ -173,7 +173,9 @@ export interface GroupPoolState {
   expiresAt: string;
   memberCount: number;
   openSparksCount: number;
+  totalSparksCount: number;
   activeChambersCount: number;
+  burnedChambersCount: number;
   completedRendezvousCount: number;
   me?: PoolMemberMe | null;
   sparks: PoolSpark[];

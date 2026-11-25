@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import {
+  BarChart3,
   Bot,
   CheckCircle2,
   Copy,
@@ -12,6 +13,7 @@ import {
   MessageCircle,
   Pencil,
   Plus,
+  QrCode,
   Radio,
   Send,
   ShieldCheck,
@@ -33,6 +35,8 @@ import type {
 import { ambientAudio } from '../utils/ambientAudio';
 import { MaskAvatar } from './MaskAvatar';
 import { MaskDesigner } from './MaskDesigner';
+import { QrInviteModal } from './QrInviteModal';
+import { NightSummaryModal } from './NightSummaryModal';
 
 interface GroupPoolProps {
   clientId: string;
@@ -97,6 +101,8 @@ export function GroupPool({
     return { shape: 'venetian', color: '#8f1833', accent: '#f2d57e' };
   });
   const [showEditMaskModal, setShowEditMaskModal] = useState(false);
+  const [showQrModal, setShowQrModal] = useState(false);
+  const [showSummaryModal, setShowSummaryModal] = useState(false);
 
   // Active Pool state
   const [pool, setPool] = useState<GroupPoolState | null>(null);
@@ -727,34 +733,50 @@ export function GroupPool({
           </div>
         </div>
 
-        {/* 1-Click WhatsApp Group Invite Bar */}
+        {/* 1-Click WhatsApp + QR Code + Bilance noci + Demo Bot Bar */}
         <div className="flex flex-wrap gap-2">
           <a
             href={whatsappGroupHref}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex-1 min-w-[200px] min-h-[44px] inline-flex items-center justify-center gap-2 rounded-xl bg-[#25D366] px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-[#062411] hover:brightness-105 transition"
+            className="flex-1 min-w-[190px] min-h-[44px] inline-flex items-center justify-center gap-2 rounded-xl bg-[#25D366] px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-[#062411] hover:brightness-105 transition"
           >
             <MessageCircle className="h-4 w-4 fill-current" />
-            Pozvat skupinu na WhatsApp
+            Pozvat na WhatsApp
           </a>
           <button
             type="button"
+            onClick={() => setShowQrModal(true)}
+            className="cursor-pointer min-h-[44px] inline-flex items-center justify-center gap-1.5 rounded-xl border border-[#d4af37]/50 bg-[#2a1019] px-3.5 py-2.5 text-xs font-semibold text-[#f2d57e] hover:bg-[#3d1624]"
+          >
+            <QrCode className="h-4 w-4" />
+            QR kód
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowSummaryModal(true)}
+            className="cursor-pointer min-h-[44px] inline-flex items-center justify-center gap-1.5 rounded-xl border border-[#d4af37]/35 bg-black/40 px-3.5 py-2.5 text-xs font-medium text-[#f2d57e] hover:bg-white/10"
+          >
+            <BarChart3 className="h-4 w-4" />
+            Bilance
+          </button>
+          <button
+            type="button"
             onClick={handleCopyGroupLink}
-            className="cursor-pointer min-h-[44px] inline-flex items-center justify-center gap-1.5 rounded-xl border border-[#d4af37]/35 bg-black/40 px-4 py-2.5 text-xs font-medium text-[#f2d57e] hover:bg-white/10"
+            className="cursor-pointer min-h-[44px] inline-flex items-center justify-center gap-1.5 rounded-xl border border-white/15 bg-black/40 px-3 py-2.5 text-xs font-medium text-[#e6d5dc] hover:bg-white/10"
           >
             <Copy className="h-3.5 w-3.5" />
-            {copiedLink ? 'Zkopírováno!' : 'Link'}
+            {copiedLink ? 'OK!' : 'Link'}
           </button>
           <button
             type="button"
             disabled={loading}
             onClick={handleSpawnDemoBot}
             title="Přidá testovací Masku, aby sis hru mohl vyzkoušet i sám"
-            className="cursor-pointer min-h-[44px] inline-flex items-center justify-center gap-1.5 rounded-xl border border-white/15 bg-white/5 px-3.5 py-2.5 text-xs text-[#d6c2ca] hover:border-[#d4af37]/40"
+            className="cursor-pointer min-h-[44px] inline-flex items-center justify-center gap-1.5 rounded-xl border border-white/15 bg-white/5 px-3 py-2.5 text-xs text-[#d6c2ca] hover:border-[#d4af37]/40"
           >
             <Bot className="h-3.5 w-3.5 text-[#f2d57e]" />
-            + Demo Maska
+            + Demo
           </button>
         </div>
       </div>
@@ -1046,6 +1068,25 @@ export function GroupPool({
             </button>
           </div>
         </div>
+      )}
+
+      {showQrModal && (
+        <QrInviteModal
+          poolCode={pool.poolCode}
+          poolTitle={pool.title}
+          inviteUrl={groupInviteUrl}
+          onClose={() => setShowQrModal(false)}
+          onNotify={onNotify}
+        />
+      )}
+
+      {showSummaryModal && (
+        <NightSummaryModal
+          pool={pool}
+          inviteUrl={groupInviteUrl}
+          onClose={() => setShowSummaryModal(false)}
+          onNotify={onNotify}
+        />
       )}
     </div>
   );
