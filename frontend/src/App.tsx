@@ -285,6 +285,13 @@ export default function App() {
               <Database className="h-3.5 w-3.5 text-[#d4af37]" />
               {health?.dbConnected ? 'MSSQL připojena' : 'Čekám na API…'}
             </span>
+            <span className="text-white/20">|</span>
+            <span>
+              AI:{' '}
+              <strong className="text-[#f2d57e]">
+                {health?.aiMode === 'live-llm' ? `Live (${health.aiModel ?? 'Azure OpenAI'})` : 'Demo'}
+              </strong>
+            </span>
           </div>
         </div>
       </footer>

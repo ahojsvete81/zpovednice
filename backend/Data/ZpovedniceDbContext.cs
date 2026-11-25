@@ -253,5 +253,6 @@ public class MaskChamberEntity
     public string Passphrase { get; set; } = string.Empty;
     public string MeetingSpot { get; set; } = "Za 5 minut na terase";
     public string Icebreaker { get; set; } = string.Empty;
+    public string? ConfessorVerdict { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }

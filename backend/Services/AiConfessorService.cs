@@ -34,6 +34,150 @@ public class AiConfessorService(
     };
 
     public bool IsLiveAiConfigured => !string.IsNullOrWhiteSpace(GetApiKey());
+    public string ConfiguredModel => configuration["AiConfessor:Model"] ?? "gpt-5.6-luna";
+
+    // ─── TAJNÝ KRUH: LIVE AI FOR CHAMBER SIGNALS, PASSPHRASE & VERDICT ─────────────
+    public async Task<(string SignalA, string SignalB, string Passphrase, string Icebreaker)> GenerateChamberGameplayAsync(
+        string poolTitle,
+        string heatMode,
+        string sparkText,
+        CancellationToken ct = default)
+    {
+        var apiKey = GetApiKey();
+        if (!string.IsNullOrWhiteSpace(apiKey))
+        {
+            try
+            {
+                var systemPrompt = """
+                    Jsi šarmantní, vtipný a smyslný moderátor společenské párty hry „Tajný Kruh“ (18+).
+                    Píšeš česky, vkusně (žádná vulgarita ani explicitní porno — jen silné napětí, hra a elegance).
+                    """;
+                var userPrompt = $$"""
+                    Skupina hraje Tajný Kruh na akci: „{{poolTitle}}“ (úroveň žáru: {{heatMode}}).
+                    Vhozený anonymní návrh, který se právě chytil: „{{sparkText}}“.
+
+                    Vymysli unikátní herní zadání pro dvě skryté Masky v místnosti (vždy 1–2 krátké věty):
+                    - signalA: Nenápadné fyzické gesto v reálné místnosti pro Masku A (např. pití, dotek šíje, pohled, úprava rukávu — přirozené na akci „{{poolTitle}}“).
+                    - signalB: Jiné nenápadné fyzické gesto v místnosti pro Masku B.
+                    - passphrase: Krátké, vtipné a smyslné tajné heslo v uvozovkách pro první větu při setkání.
+                    - icebreaker: Krátké pravidlo pro prvních 30 sekund po setkání, které odbourá trapnost.
+
+                    Vrať POUZE validní JSON:
+                    {
+                      "signalA": "...",
+                      "signalB": "...",
+                      "passphrase": "...",
+                      "icebreaker": "..."
+                    }
+                    """;
+
+                var content = await SendChatCompletionAsync(apiKey, systemPrompt, userPrompt, ct);
+                if (!string.IsNullOrWhiteSpace(content))
+                {
+                    var parsed = JsonSerializer.Deserialize<LiveChamberSetupJson>(StripCodeFences(content), JsonOptions);
+                    if (parsed is not null
+                        && !string.IsNullOrWhiteSpace(parsed.SignalA)
+                        && !string.IsNullOrWhiteSpace(parsed.SignalB)
+                        && !string.IsNullOrWhiteSpace(parsed.Passphrase))
+                    {
+                        return (
+                            parsed.SignalA.Trim(),
+                            parsed.SignalB.Trim(),
+                            parsed.Passphrase.Trim(),
+                            string.IsNullOrWhiteSpace(parsed.Icebreaker)
+                                ? GroupPoolCatalog.Icebreakers[0]
+                                : parsed.Icebreaker.Trim()
+                        );
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Live AI chamber setup failed, falling back to curated catalog.");
+            }
+        }
+
+        return (
+            GroupPoolCatalog.StealthSignalsA[Random.Shared.Next(GroupPoolCatalog.StealthSignalsA.Length)],
+            GroupPoolCatalog.StealthSignalsB[Random.Shared.Next(GroupPoolCatalog.StealthSignalsB.Length)],
+            GroupPoolCatalog.Passphrases[Random.Shared.Next(GroupPoolCatalog.Passphrases.Length)],
+            GroupPoolCatalog.Icebreakers[Random.Shared.Next(GroupPoolCatalog.Icebreakers.Length)]
+        );
+    }
+
+    public async Task<string> GenerateChamberChemistryVerdictAsync(
+        string maskA,
+        ChemistryAnswersDto ansA,
+        string maskB,
+        ChemistryAnswersDto ansB,
+        CancellationToken ct = default)
+    {
+        var apiKey = GetApiKey();
+        if (!string.IsNullOrWhiteSpace(apiKey))
+        {
+            try
+            {
+                var systemPrompt = """
+                    Jsi Mefisto — šarmantní, bystrý a lehce provokativní moderátor hry „Tajný Kruh“ (18+).
+                    Píšeš česky, vtipně, smyslně a bez vulgarity.
+                    """;
+                var userPrompt = $$"""
+                    Dvě skryté masky právě dokončily Zkoušku chemie:
+                    {{maskA}}: limit="{{ansA.FarLimit}}", dynamika="{{ansA.DynamicStyle}}", šepot="{{ansA.WhisperLine}}"
+                    {{maskB}}: limit="{{ansB.FarLimit}}", dynamika="{{ansB.DynamicStyle}}", šepot="{{ansB.WhisperLine}}"
+
+                    Napiš krátký, jiskřivý 2-větý verdikt Zpovědníka o tom, jaká chemie nebo polarita mezi nimi právě vznikla a proč stojí za to jít do Zkoušky signálu.
+                    Vrať POUZE validní JSON: { "verdict": "..." }
+                    """;
+
+                var content = await SendChatCompletionAsync(apiKey, systemPrompt, userPrompt, ct);
+                if (!string.IsNullOrWhiteSpace(content))
+                {
+                    var parsed = JsonSerializer.Deserialize<LiveVerdictJson>(StripCodeFences(content), JsonOptions);
+                    if (!string.IsNullOrWhiteSpace(parsed?.Verdict))
+                        return parsed.Verdict.Trim();
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Live AI chemistry verdict failed, using fallback.");
+            }
+        }
+
+        return $"Mezi {maskA} a {maskB} právě přeskočila silná jiskra — vaše odpovědi ukazují chuť po stejné hře. Teď nastal čas podívat se po místnosti.";
+    }
+
+    public async Task<string> GenerateSystemSparkAsync(
+        string poolTitle,
+        string heatMode,
+        CancellationToken ct = default)
+    {
+        var apiKey = GetApiKey();
+        if (!string.IsNullOrWhiteSpace(apiKey))
+        {
+            try
+            {
+                var systemPrompt = "Jsi vtipný, svůdný moderátor společenské 18+ hry Tajný Kruh. Píšeš česky, vkusně a hravě.";
+                var userPrompt = $$"""
+                    Na akci „{{poolTitle}}“ (úroveň žáru: {{heatMode}}) je zatím ticho. Vymysli JEDNU krátkou, neodolatelnou provokativní výzvu (1–2 věty) do anonymního poolu, která lidi v místnosti rozesměje a přiměje chytit sirku.
+                    Vrať POUZE validní JSON: { "sparkText": "..." }
+                    """;
+                var content = await SendChatCompletionAsync(apiKey, systemPrompt, userPrompt, ct);
+                if (!string.IsNullOrWhiteSpace(content))
+                {
+                    var parsed = JsonSerializer.Deserialize<LiveSparkJson>(StripCodeFences(content), JsonOptions);
+                    if (!string.IsNullOrWhiteSpace(parsed?.SparkText))
+                        return "🔥 " + parsed.SparkText.Replace("🔥", string.Empty).Trim();
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Live AI system spark failed, using fallback.");
+            }
+        }
+
+        return GroupPoolCatalog.SystemIcebreakerSparks[Random.Shared.Next(GroupPoolCatalog.SystemIcebreakerSparks.Length)];
+    }
 
     private string? GetApiKey()
     {
@@ -366,31 +510,51 @@ public class AiConfessorService(
     }
 
     private async Task<string?> SendChatCompletionAsync(
-        string apiKey, string systemPrompt, string userPrompt, CancellationToken ct)
+        string baseUrlOrKey, string systemPrompt, string userPrompt, CancellationToken ct)
     {
+        var apiKey = baseUrlOrKey;
         var baseUrl = (configuration["AiConfessor:BaseUrl"] ?? "https://api.openai.com/v1").TrimEnd('/');
-        var model = configuration["AiConfessor:Model"] ?? "gpt-4o-mini";
+        var model = configuration["AiConfessor:Model"] ?? "gpt-5.6-luna";
 
         using var request = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/chat/completions");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+        request.Headers.TryAddWithoutValidation("api-key", apiKey);
 
-        var payload = new
-        {
-            model,
-            temperature = 0.85,
-            response_format = new { type = "json_object" },
-            messages = new[]
+        var isGpt5OrReasoning = model.StartsWith("gpt-5", StringComparison.OrdinalIgnoreCase)
+                                || model.StartsWith("o1", StringComparison.OrdinalIgnoreCase)
+                                || model.StartsWith("o3", StringComparison.OrdinalIgnoreCase);
+
+        object payload = isGpt5OrReasoning
+            ? new
             {
-                new { role = "system", content = systemPrompt },
-                new { role = "user", content = userPrompt }
+                model,
+                response_format = new { type = "json_object" },
+                messages = new[]
+                {
+                    new { role = "system", content = systemPrompt },
+                    new { role = "user", content = userPrompt }
+                }
             }
-        };
+            : new
+            {
+                model,
+                temperature = 0.85,
+                response_format = new { type = "json_object" },
+                messages = new[]
+                {
+                    new { role = "system", content = systemPrompt },
+                    new { role = "user", content = userPrompt }
+                }
+            };
 
         request.Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
-        using var response = await httpClient.SendAsync(request, ct);
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(TimeSpan.FromSeconds(25));
+
+        using var response = await httpClient.SendAsync(request, cts.Token);
         response.EnsureSuccessStatusCode();
 
-        using var doc = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(ct), cancellationToken: ct);
+        using var doc = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(cts.Token), cancellationToken: cts.Token);
         return doc.RootElement.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString();
     }
 
@@ -748,5 +912,23 @@ public class AiConfessorService(
         public string? DaytimeSparkMessage { get; set; }
         public List<CoupleStepDto>? Steps { get; set; }
         public string? ClosingAbsolution { get; set; }
+    }
+
+    private sealed class LiveChamberSetupJson
+    {
+        public string? SignalA { get; set; }
+        public string? SignalB { get; set; }
+        public string? Passphrase { get; set; }
+        public string? Icebreaker { get; set; }
+    }
+
+    private sealed class LiveVerdictJson
+    {
+        public string? Verdict { get; set; }
+    }
+
+    private sealed class LiveSparkJson
+    {
+        public string? SparkText { get; set; }
     }
 }

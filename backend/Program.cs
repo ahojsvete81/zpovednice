@@ -56,6 +56,7 @@ api.MapGet("/health", async (ZpovedniceDbContext db, AiConfessorService ai) =>
         activePools,
         billingEnabled,
         aiMode = ai.IsLiveAiConfigured ? "live-llm" : "crafted-czech-demo",
+        aiModel = ai.IsLiveAiConfigured ? ai.ConfiguredModel : "demo",
         timestamp = DateTime.UtcNow
     });
 });

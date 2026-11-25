@@ -1,4 +1,5 @@
 param(
+    [string]$SubscriptionId = "a6a4585e-590e-49b0-abda-da4e07419e9e",
     [string]$ResourceGroup = "rg-zpovednice",
     [string]$WebAppName = "app-zpovednice-dev"
 )
@@ -36,6 +37,7 @@ try {
 
 Write-Host "4/4 Deploying ZIP package to Azure App Service ($WebAppName)..." -ForegroundColor Cyan
 az webapp deploy `
+    --subscription $SubscriptionId `
     --resource-group $ResourceGroup `
     --name $WebAppName `
     --src-path deploy.zip `
@@ -45,6 +47,6 @@ az webapp deploy `
     --track-status false
 
 Write-Host "Restarting App Service to activate new release..." -ForegroundColor Cyan
-az webapp restart --resource-group $ResourceGroup --name $WebAppName
+az webapp restart --subscription $SubscriptionId --resource-group $ResourceGroup --name $WebAppName
 
 Write-Host "Done! Live URL: https://$WebAppName.azurewebsites.net" -ForegroundColor Green

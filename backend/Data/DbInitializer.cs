@@ -121,6 +121,8 @@ public static class DbInitializer
                 );
                 CREATE INDEX IX_MaskChambers_PoolCode ON MaskChambers (PoolCode);
             END;
+            IF COL_LENGTH('MaskChambers', 'ConfessorVerdict') IS NULL
+                ALTER TABLE MaskChambers ADD ConfessorVerdict NVARCHAR(500) NULL;
             """;
 
         await db.Database.ExecuteSqlRawAsync(upgradeSql);

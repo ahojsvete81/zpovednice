@@ -161,6 +161,7 @@ export interface MaskChamber {
   passphrase?: string | null;
   meetingSpot?: string | null;
   icebreaker?: string | null;
+  confessorVerdict?: string | null;
 }
 
 export interface GroupPoolState {
@@ -198,6 +199,7 @@ export interface HealthStatus {
   activePools: number;
   billingEnabled: boolean;
   aiMode: string;
+  aiModel?: string;
 }
 
 export type IntensityLevel = 'gentle' | 'spicy' | 'burning';

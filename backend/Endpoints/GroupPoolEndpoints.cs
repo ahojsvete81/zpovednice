@@ -142,18 +142,23 @@ public static class GroupPoolEndpoints
             return Results.Ok(await BuildPoolStateAsync(db, entity, clientId));
         });
 
-        // Cold-start helper: Confessor drops a system icebreaker spark if room is shy
-        pool.MapPost("/{poolCode}/sparks/system", async (string poolCode, string clientId, ZpovedniceDbContext db) =>
+        // Cold-start helper: Live AI Confessor drops a bespoke icebreaker spark tailored to the room!
+        pool.MapPost("/{poolCode}/sparks/system", async (
+            string poolCode,
+            string clientId,
+            ZpovedniceDbContext db,
+            AiConfessorService ai,
+            CancellationToken ct) =>
         {
             var code = poolCode.Trim().ToUpperInvariant();
-            var entity = await db.GroupPools.FirstOrDefaultAsync(p => p.PoolCode == code);
+            var entity = await db.GroupPools.FirstOrDefaultAsync(p => p.PoolCode == code, ct);
             if (entity is null) return Results.NotFound();
 
             var cid = NormalizeClientId(clientId);
-            var me = await db.PoolMembers.FirstOrDefaultAsync(m => m.PoolCode == code && m.ClientId == cid);
+            var me = await db.PoolMembers.FirstOrDefaultAsync(m => m.PoolCode == code && m.ClientId == cid, ct);
             if (me is null) return Results.BadRequest(new { error = "Nejsi členem Kruhu." });
 
-            var text = GroupPoolCatalog.SystemIcebreakerSparks[Random.Shared.Next(GroupPoolCatalog.SystemIcebreakerSparks.Length)];
+            var text = await ai.GenerateSystemSparkAsync(entity.Title, entity.HeatMode, ct);
             db.PoolSparks.Add(new PoolSparkEntity
             {
                 PoolCode = code,
@@ -163,7 +168,7 @@ public static class GroupPoolEndpoints
                 IsSystemSpark = true,
                 Status = "Open"
             });
-            await db.SaveChangesAsync();
+            await db.SaveChangesAsync(ct);
 
             return Results.Ok(await BuildPoolStateAsync(db, entity, cid));
         });
@@ -174,30 +179,32 @@ public static class GroupPoolEndpoints
             Guid sparkId,
             CatchSparkRequest req,
             ZpovedniceDbContext db,
-            SafetyGuardrailService safety) =>
+            SafetyGuardrailService safety,
+            AiConfessorService ai,
+            CancellationToken ct) =>
         {
             var code = poolCode.Trim().ToUpperInvariant();
-            var entity = await db.GroupPools.FirstOrDefaultAsync(p => p.PoolCode == code);
+            var entity = await db.GroupPools.FirstOrDefaultAsync(p => p.PoolCode == code, ct);
             if (entity is null) return Results.NotFound();
 
             var clientId = NormalizeClientId(req.ClientId);
-            var me = await db.PoolMembers.FirstOrDefaultAsync(m => m.PoolCode == code && m.ClientId == clientId);
+            var me = await db.PoolMembers.FirstOrDefaultAsync(m => m.PoolCode == code && m.ClientId == clientId, ct);
             if (me is null) return Results.BadRequest(new { error = "Nejsi v tomto Kruhu." });
 
             if (me.GoldenMatchesLeft <= 0)
                 return Results.BadRequest(new { error = "Došly ti Zlaté sirky (3/3) pro tento večer! Můžeš ale vhodit vlastní návrh." });
 
             var hasActiveChamber = await db.MaskChambers.AnyAsync(c =>
-                c.PoolCode == code && c.Stage < 9 && (c.MemberAId == me.Id || c.MemberBId == me.Id));
+                c.PoolCode == code && c.Stage < 9 && (c.MemberAId == me.Id || c.MemberBId == me.Id), ct);
             if (hasActiveChamber)
                 return Results.BadRequest(new { error = "Už máš otevřenou aktivní Tajnou komnatu. Nejdřív ji dohraj nebo spal." });
 
-            var spark = await db.PoolSparks.FirstOrDefaultAsync(s => s.Id == sparkId && s.PoolCode == code && s.Status == "Open");
+            var spark = await db.PoolSparks.FirstOrDefaultAsync(s => s.Id == sparkId && s.PoolCode == code && s.Status == "Open", ct);
             if (spark is null) return Results.NotFound(new { error = "Tato jiskra už není otevřená." });
             if (spark.AuthorMemberId == me.Id)
                 return Results.BadRequest(new { error = "Nemůžeš chytit vlastní návrh." });
 
-            var already = await db.PoolSparkCatches.AnyAsync(c => c.SparkId == sparkId && c.CatcherMemberId == me.Id);
+            var already = await db.PoolSparkCatches.AnyAsync(c => c.SparkId == sparkId && c.CatcherMemberId == me.Id, ct);
             if (already) return Results.BadRequest(new { error = "Tuhle jiskru už jsi chytil/a." });
 
             var pitch = string.IsNullOrWhiteSpace(req.PitchText)
@@ -217,14 +224,13 @@ public static class GroupPoolEndpoints
             };
             db.PoolSparkCatches.Add(catchEntity);
 
-            // If author is a Demo Bot, immediately accept & open the Mask Chamber so user can play solo right away!
-            var author = await db.PoolMembers.FirstOrDefaultAsync(m => m.Id == spark.AuthorMemberId);
+            // If author is a Demo Bot, immediately accept & open the Mask Chamber with Live AI signals!
+            var author = await db.PoolMembers.FirstOrDefaultAsync(m => m.Id == spark.AuthorMemberId, ct);
             if (author is { IsDemoBot: true })
             {
                 spark.Status = "Matched";
                 catchEntity.Status = "Selected";
-                var chamber = CreateNewChamber(code, spark.Id, author.Id, me.Id);
-                // Bot pre-fills Stage 1 chemistry answers so user gets immediate interactive reveal!
+                var chamber = await CreateNewChamberAsync(ai, entity, spark, author.Id, me.Id, ct);
                 chamber.AnswersAJson = JsonSerializer.Serialize(new ChemistryAnswersDto(
                     "Zmizet spolu po půlnoci, pokud přeskočí jiskra",
                     "Hravé přetahování o kontrolu",
@@ -235,49 +241,49 @@ public static class GroupPoolEndpoints
                 db.MaskChambers.Add(chamber);
             }
 
-            await db.SaveChangesAsync();
+            await db.SaveChangesAsync(ct);
             return Results.Ok(await BuildPoolStateAsync(db, entity, clientId));
         });
 
-        // Spark Author selects ONE masked Catcher -> Opens Mask Chamber at Stage 1
+        // Spark Author selects ONE masked Catcher -> Opens Mask Chamber with Live AI gameplay!
         pool.MapPost("/{poolCode}/sparks/{sparkId:guid}/select/{catchId:guid}", async (
             string poolCode,
             Guid sparkId,
             Guid catchId,
             string clientId,
-            ZpovedniceDbContext db) =>
+            ZpovedniceDbContext db,
+            AiConfessorService ai,
+            CancellationToken ct) =>
         {
             var code = poolCode.Trim().ToUpperInvariant();
-            var entity = await db.GroupPools.FirstOrDefaultAsync(p => p.PoolCode == code);
+            var entity = await db.GroupPools.FirstOrDefaultAsync(p => p.PoolCode == code, ct);
             if (entity is null) return Results.NotFound();
 
             var cid = NormalizeClientId(clientId);
-            var me = await db.PoolMembers.FirstOrDefaultAsync(m => m.PoolCode == code && m.ClientId == cid);
+            var me = await db.PoolMembers.FirstOrDefaultAsync(m => m.PoolCode == code && m.ClientId == cid, ct);
             if (me is null) return Results.BadRequest(new { error = "Nejsi členem Kruhu." });
 
-            var spark = await db.PoolSparks.FirstOrDefaultAsync(s => s.Id == sparkId && s.PoolCode == code && s.AuthorMemberId == me.Id);
+            var spark = await db.PoolSparks.FirstOrDefaultAsync(s => s.Id == sparkId && s.PoolCode == code && s.AuthorMemberId == me.Id, ct);
             if (spark is null || spark.Status != "Open")
                 return Results.BadRequest(new { error = "Návrh nelze vybrat." });
 
-            var allCatches = await db.PoolSparkCatches.Where(c => c.SparkId == sparkId).ToListAsync();
+            var allCatches = await db.PoolSparkCatches.Where(c => c.SparkId == sparkId).ToListAsync(ct);
             var chosen = allCatches.FirstOrDefault(c => c.Id == catchId);
             if (chosen is null) return Results.NotFound(new { error = "Zájemce nenalezen." });
 
-            // Refund Golden Match to unselected suitors
             foreach (var other in allCatches.Where(c => c.Id != catchId))
             {
                 other.Status = "Refunded";
-                var otherMember = await db.PoolMembers.FirstOrDefaultAsync(m => m.Id == other.CatcherMemberId);
+                var otherMember = await db.PoolMembers.FirstOrDefaultAsync(m => m.Id == other.CatcherMemberId, ct);
                 if (otherMember is not null) otherMember.GoldenMatchesLeft = Math.Min(3, otherMember.GoldenMatchesLeft + 1);
             }
 
             chosen.Status = "Selected";
             spark.Status = "Matched";
 
-            var chamber = CreateNewChamber(code, spark.Id, me.Id, chosen.CatcherMemberId);
+            var chamber = await CreateNewChamberAsync(ai, entity, spark, me.Id, chosen.CatcherMemberId, ct);
 
-            // If chosen catcher is a Demo Bot, pre-fill its Stage 1 chemistry answers
-            var chosenMember = await db.PoolMembers.FirstOrDefaultAsync(m => m.Id == chosen.CatcherMemberId);
+            var chosenMember = await db.PoolMembers.FirstOrDefaultAsync(m => m.Id == chosen.CatcherMemberId, ct);
             if (chosenMember is { IsDemoBot: true })
             {
                 chamber.AnswersBJson = JsonSerializer.Serialize(new ChemistryAnswersDto(
@@ -289,7 +295,7 @@ public static class GroupPoolEndpoints
             }
 
             db.MaskChambers.Add(chamber);
-            await db.SaveChangesAsync();
+            await db.SaveChangesAsync(ct);
 
             return Results.Ok(await BuildPoolStateAsync(db, entity, cid));
         });
@@ -305,21 +311,23 @@ public static class GroupPoolEndpoints
             return Results.Ok(new { reported = true, burned = spark.Status == "Burned" });
         });
 
-        // Stage 1: Submit blind Chemistry Trial answers
+        // Stage 1: Submit blind Chemistry Trial answers + Live AI Confessor Verdict when both answered!
         pool.MapPost("/chambers/{chamberId:guid}/chemistry", async (
             Guid chamberId,
             SubmitChemistryRequest req,
             ZpovedniceDbContext db,
-            SafetyGuardrailService safety) =>
+            SafetyGuardrailService safety,
+            AiConfessorService ai,
+            CancellationToken ct) =>
         {
-            var chamber = await db.MaskChambers.FirstOrDefaultAsync(c => c.Id == chamberId && c.Stage < 9);
+            var chamber = await db.MaskChambers.FirstOrDefaultAsync(c => c.Id == chamberId && c.Stage < 9, ct);
             if (chamber is null) return Results.NotFound(new { error = "Komnata již neexistuje nebo shořela." });
 
             var safetyCheck = safety.Evaluate(req.WhisperLine);
             if (safetyCheck.IsBlocked) return Results.BadRequest(new { error = safetyCheck.CrisisHelp!.Message });
 
             var cid = NormalizeClientId(req.ClientId);
-            var me = await db.PoolMembers.FirstOrDefaultAsync(m => m.PoolCode == chamber.PoolCode && m.ClientId == cid);
+            var me = await db.PoolMembers.FirstOrDefaultAsync(m => m.PoolCode == chamber.PoolCode && m.ClientId == cid, ct);
             if (me is null) return Results.Forbid();
 
             var answersJson = JsonSerializer.Serialize(new ChemistryAnswersDto(
@@ -332,9 +340,22 @@ public static class GroupPoolEndpoints
             else if (chamber.MemberBId == me.Id) chamber.AnswersBJson = answersJson;
             else return Results.Forbid();
 
-            await db.SaveChangesAsync();
+            // Once both answered, ask Live AI Confessor for a sharp chemistry verdict!
+            if (!string.IsNullOrWhiteSpace(chamber.AnswersAJson)
+                && !string.IsNullOrWhiteSpace(chamber.AnswersBJson)
+                && string.IsNullOrWhiteSpace(chamber.ConfessorVerdict))
+            {
+                var memberA = await db.PoolMembers.FirstOrDefaultAsync(m => m.Id == chamber.MemberAId, ct);
+                var memberB = await db.PoolMembers.FirstOrDefaultAsync(m => m.Id == chamber.MemberBId, ct);
+                var ansA = JsonSerializer.Deserialize<ChemistryAnswersDto>(chamber.AnswersAJson)!;
+                var ansB = JsonSerializer.Deserialize<ChemistryAnswersDto>(chamber.AnswersBJson)!;
+                chamber.ConfessorVerdict = await ai.GenerateChamberChemistryVerdictAsync(
+                    memberA?.MaskName ?? "Maska A", ansA, memberB?.MaskName ?? "Maska B", ansB, ct);
+            }
 
-            var poolEntity = await db.GroupPools.FirstAsync(p => p.PoolCode == chamber.PoolCode);
+            await db.SaveChangesAsync(ct);
+
+            var poolEntity = await db.GroupPools.FirstAsync(p => p.PoolCode == chamber.PoolCode, ct);
             return Results.Ok(await BuildPoolStateAsync(db, poolEntity, cid));
         });
 
@@ -513,20 +534,31 @@ public static class GroupPoolEndpoints
         });
     }
 
-    private static MaskChamberEntity CreateNewChamber(string poolCode, Guid sparkId, Guid memberAId, Guid memberBId) =>
-        new()
+    private static async Task<MaskChamberEntity> CreateNewChamberAsync(
+        AiConfessorService ai,
+        GroupPoolEntity pool,
+        PoolSparkEntity spark,
+        Guid memberAId,
+        Guid memberBId,
+        CancellationToken ct)
+    {
+        var (signalA, signalB, passphrase, icebreaker) = await ai.GenerateChamberGameplayAsync(
+            pool.Title, pool.HeatMode, spark.Text, ct);
+
+        return new MaskChamberEntity
         {
-            PoolCode = poolCode,
-            SparkId = sparkId,
+            PoolCode = pool.PoolCode,
+            SparkId = spark.Id,
             MemberAId = memberAId,
             MemberBId = memberBId,
             Stage = 1,
-            SignalAText = GroupPoolCatalog.StealthSignalsA[Random.Shared.Next(GroupPoolCatalog.StealthSignalsA.Length)],
-            SignalBText = GroupPoolCatalog.StealthSignalsB[Random.Shared.Next(GroupPoolCatalog.StealthSignalsB.Length)],
-            Passphrase = GroupPoolCatalog.Passphrases[Random.Shared.Next(GroupPoolCatalog.Passphrases.Length)],
+            SignalAText = signalA,
+            SignalBText = signalB,
+            Passphrase = passphrase,
             MeetingSpot = GroupPoolCatalog.MeetingSpots[0],
-            Icebreaker = GroupPoolCatalog.Icebreakers[Random.Shared.Next(GroupPoolCatalog.Icebreakers.Length)]
+            Icebreaker = icebreaker
         };
+    }
 
     private static async Task<GroupPoolStateResponse> BuildPoolStateAsync(
         ZpovedniceDbContext db, GroupPoolEntity pool, string clientId)
@@ -653,7 +685,8 @@ public static class GroupPoolEndpoints
                     SignalBConfirmedByA: myChamber.SignalBConfirmedByA,
                     Passphrase: myChamber.Stage == 4 ? myChamber.Passphrase : null,
                     MeetingSpot: myChamber.Stage == 4 ? myChamber.MeetingSpot : null,
-                    Icebreaker: myChamber.Stage == 4 ? myChamber.Icebreaker : null
+                    Icebreaker: myChamber.Stage == 4 ? myChamber.Icebreaker : null,
+                    ConfessorVerdict: bothAnswered ? myChamber.ConfessorVerdict : null
                 );
             }
         }

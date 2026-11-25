@@ -1114,6 +1114,15 @@ function MaskChamberView({
           ) : (
             /* Both answered -> Reveal Chemistry + Clue #1 + Consent Gate #1 */
             <div className="space-y-4">
+              {chamber.confessorVerdict && (
+                <blockquote className="rounded-2xl border-l-2 border-[#f2d57e] bg-[#1a0911]/90 p-4 text-xs sm:text-sm italic text-[#f7e7ee] leading-relaxed">
+                  <span className="not-italic text-[10px] uppercase tracking-widest text-[#d4af37] block mb-1">
+                    Verdikt AI Zpovědníka:
+                  </span>
+                  „{chamber.confessorVerdict}“
+                </blockquote>
+              )}
+
               {chamber.otherClue1 && (
                 <div className="rounded-2xl border border-[#f2d57e]/45 bg-[#2a150e]/85 p-4 flex items-center gap-3">
                   <Eye className="h-5 w-5 text-[#f2d57e] shrink-0" />

@@ -223,7 +223,8 @@ public record MaskChamberDto(
     bool SignalBConfirmedByA,
     string? Passphrase,
     string? MeetingSpot,
-    string? Icebreaker
+    string? Icebreaker,
+    string? ConfessorVerdict
 );
 
 public record PoolMemberMeDto(
