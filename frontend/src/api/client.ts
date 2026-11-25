@@ -1,10 +1,15 @@
 import type {
+  CoupleModeType,
   CoupleRoomStatus,
+  DailyQuestion,
+  DesireCard,
+  DesireProfile,
   HealthStatus,
   IntensityLevel,
   Persona,
   SinWallEntry,
   SoloConfessionResponse,
+  SoloProbeResponse,
   Wallet,
 } from '../types/confession';
 
@@ -43,7 +48,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
       if (data?.error) errMsg = data.error;
       if (data?.code) code = data.code;
     } catch {
-      // ignore json parse error
+      // ignore
     }
     throw new ApiError(errMsg, res.status, code);
   }
@@ -54,12 +59,44 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 export const api = {
   getHealth: () => request<HealthStatus>('/api/health'),
   getPersonas: () => request<Persona[]>('/api/personas'),
+  getCoupleCards: () => request<DesireCard[]>('/api/couple/cards'),
   getWallet: (clientId: string) => request<Wallet>(`/api/wallet/${encodeURIComponent(clientId)}`),
+  getProfile: (clientId: string) =>
+    request<DesireProfile>(`/api/profile/${encodeURIComponent(clientId)}`),
+
+  completePenance: (payload: {
+    clientId: string;
+    penanceTitle: string;
+    feedback: 'bolder' | 'perfect' | 'gentler';
+  }) =>
+    request<{ message: string; profile: DesireProfile }>('/api/profile/penance-complete', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  getDailyQuestion: () => request<DailyQuestion>('/api/daily-question'),
+
+  voteDailyQuestion: (id: number, choice: 'A' | 'B') =>
+    request<DailyQuestion>(`/api/daily-question/${id}/vote`, {
+      method: 'POST',
+      body: JSON.stringify({ choice }),
+    }),
 
   purchasePackage: (clientId: string, packageCode: 'couple_night' | 'pack_10' | 'vip_month') =>
     request<{ success: boolean; message: string; wallet: Wallet }>('/api/wallet/purchase', {
       method: 'POST',
       body: JSON.stringify({ clientId, packageCode }),
+    }),
+
+  probeSoloConfession: (payload: {
+    clientId: string;
+    personaId: string;
+    confessionText: string;
+    intensity: IntensityLevel;
+  }) =>
+    request<SoloProbeResponse>('/api/confessions/solo/probe', {
+      method: 'POST',
+      body: JSON.stringify(payload),
     }),
 
   submitSoloConfession: (payload: {
@@ -68,6 +105,9 @@ export const api = {
     confessionText: string;
     intensity: IntensityLevel;
     publishToWall: boolean;
+    probeQuestion?: string;
+    deepAnswer?: string;
+    contextMode: 'solo' | 'partner';
   }) =>
     request<SoloConfessionResponse>('/api/confessions/solo', {
       method: 'POST',
@@ -79,10 +119,15 @@ export const api = {
       method: 'DELETE',
     }),
 
-  createCoupleRoom: (clientId: string, personaId: string, intensity: IntensityLevel) =>
+  createCoupleRoom: (
+    clientId: string,
+    personaId: string,
+    intensity: IntensityLevel,
+    mode: CoupleModeType
+  ) =>
     request<CoupleRoomStatus>('/api/couple/rooms', {
       method: 'POST',
-      body: JSON.stringify({ clientId, personaId, intensity }),
+      body: JSON.stringify({ clientId, personaId, intensity, mode }),
     }),
 
   getCoupleRoom: (roomCode: string) =>
@@ -93,8 +138,9 @@ export const api = {
     payload: {
       clientId: string;
       partnerRole: 'A' | 'B';
-      confessionText: string;
-      boundaries: string[];
+      confessionText?: string;
+      boundaries?: string[];
+      cardVotes?: Record<string, string>;
     }
   ) =>
     request<CoupleRoomStatus>(`/api/couple/rooms/${encodeURIComponent(roomCode)}/submit`, {
@@ -103,9 +149,10 @@ export const api = {
     }),
 
   burnCoupleRoom: (roomCode: string) =>
-    request<{ burned: boolean; message: string }>(`/api/couple/rooms/${encodeURIComponent(roomCode)}/burn`, {
-      method: 'DELETE',
-    }),
+    request<{ burned: boolean; message: string }>(
+      `/api/couple/rooms/${encodeURIComponent(roomCode)}/burn`,
+      { method: 'DELETE' }
+    ),
 
   getSinWall: () => request<SinWallEntry[]>('/api/wall'),
 

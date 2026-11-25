@@ -29,7 +29,7 @@ app.UseCors();
 app.UseDefaultFiles();
 app.UseStaticFiles();
 
-// Initialize MSSQL Database & Seed Sin Wall
+// Initialize & auto-upgrade MSSQL Database
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<ZpovedniceDbContext>();
@@ -37,9 +37,10 @@ using (var scope = app.Services.CreateScope())
     await DbInitializer.InitializeAsync(db, logger);
 }
 
+var billingEnabled = app.Configuration.GetValue<bool>("Features:BillingEnabled");
 var api = app.MapGroup("/api");
 
-// Health & status
+// Health & feature flags
 api.MapGet("/health", async (ZpovedniceDbContext db, AiConfessorService ai) =>
 {
     var canConnect = await db.Database.CanConnectAsync();
@@ -50,14 +51,21 @@ api.MapGet("/health", async (ZpovedniceDbContext db, AiConfessorService ai) =>
         database = "SQL Server / ZpovedniceDb",
         dbConnected = canConnect,
         sinWallCount = wallCount,
+        billingEnabled,
         aiMode = ai.IsLiveAiConfigured ? "live-llm" : "crafted-czech-demo",
         timestamp = DateTime.UtcNow
     });
 });
 
-// Personas
+// Personas (free during Open Pilot when BillingEnabled=false)
 api.MapGet("/personas", () =>
-    Results.Ok(PersonaCatalog.All.Select(p => p.PublicInfo)));
+    Results.Ok(PersonaCatalog.All.Select(p =>
+        billingEnabled
+            ? p.PublicInfo
+            : p.PublicInfo with { OdpustkyCost = 0, IsPremium = false })));
+
+// Couple Blind Desire Cards catalog
+api.MapGet("/couple/cards", () => Results.Ok(CoupleCardCatalog.All));
 
 // Wallet
 api.MapGet("/wallet/{clientId}", async (string clientId, ZpovedniceDbContext db) =>
@@ -66,24 +74,71 @@ api.MapGet("/wallet/{clientId}", async (string clientId, ZpovedniceDbContext db)
     return Results.Ok(ToWalletDto(wallet));
 });
 
-// Simulated Stripe/Odpustky purchase
+// Desire Atlas Profile
+api.MapGet("/profile/{clientId}", async (string clientId, ZpovedniceDbContext db) =>
+{
+    var profile = await DesireProfileService.GetOrCreateAsync(db, clientId);
+    return Results.Ok(DesireProfileService.ToDto(profile));
+});
+
+// Return Loop: Mark Penance Completed
+api.MapPost("/profile/penance-complete", async (CompletePenanceRequest req, ZpovedniceDbContext db) =>
+{
+    var profile = await DesireProfileService.GetOrCreateAsync(db, req.ClientId);
+    DesireProfileService.UpdateFromPenanceFeedback(profile, req.PenanceTitle, req.Feedback);
+    await db.SaveChangesAsync();
+
+    var reply = req.Feedback switch
+    {
+        "bolder" => "Odvaha roste s chutí. Tvůj Atlas touhy se posunul k temnějšímu žáru — příště přitvrdíme.",
+        "gentler" => "Skvělá zpětná vazba. Tvůj Atlas si zapamatoval, že oceníš pomalejší a něžnější tempo.",
+        _ => "Pečeť splnění uložena. Tvá úroveň zasvěcení roste a Zpovědník tě teď zná o kus lépe."
+    };
+
+    return Results.Ok(new
+    {
+        message = reply,
+        profile = DesireProfileService.ToDto(profile)
+    });
+});
+
+// Daily Sin Question (rotates by UTC day of year)
+api.MapGet("/daily-question", async (ZpovedniceDbContext db) =>
+{
+    var questions = await db.DailyQuestions.OrderBy(q => q.Id).ToListAsync();
+    if (questions.Count == 0) return Results.NotFound();
+    var today = questions[DateTime.UtcNow.DayOfYear % questions.Count];
+    return Results.Ok(ToDailyDto(today));
+});
+
+api.MapPost("/daily-question/{id:int}/vote", async (int id, VoteDailyQuestionRequest req, ZpovedniceDbContext db) =>
+{
+    var q = await db.DailyQuestions.FirstOrDefaultAsync(x => x.Id == id);
+    if (q is null) return Results.NotFound();
+
+    if (req.Choice.Equals("A", StringComparison.OrdinalIgnoreCase)) q.VotesA += 1;
+    else if (req.Choice.Equals("B", StringComparison.OrdinalIgnoreCase)) q.VotesB += 1;
+    else return Results.BadRequest(new { error = "Volba musí být 'A' nebo 'B'." });
+
+    await db.SaveChangesAsync();
+    return Results.Ok(ToDailyDto(q));
+});
+
+// Purchase (kept ready behind BillingEnabled flag)
 api.MapPost("/wallet/purchase", async (PurchasePackageRequest req, ZpovedniceDbContext db) =>
 {
-    if (string.IsNullOrWhiteSpace(req.ClientId))
-        return Results.BadRequest(new { error = "Chybí identifikátor klienta." });
+    if (!billingEnabled)
+        return Results.Ok(new PurchaseResponse(true, "Otevřený pilot: vše je nyní zcela zdarma.", ToWalletDto(await GetOrCreateWalletAsync(db, req.ClientId))));
 
     var wallet = await GetOrCreateWalletAsync(db, req.ClientId);
-
     var (delta, amountCzk, isVip, description) = req.PackageCode switch
     {
         "couple_night" => (3, 99, false, "Večer rozhřešení pro dva (3 Odpustky)"),
         "pack_10" => (10, 149, false, "Balíček 10 Odpustků"),
-        "vip_month" => (25, 249, true, "Řád Hříšníků VIP — měsíční členství (+25 Odpustků)"),
+        "vip_month" => (25, 249, true, "Řád Hříšníků VIP (+25 Odpustků)"),
         _ => (0, 0, false, string.Empty)
     };
-
-    if (delta == 0)
-        return Results.BadRequest(new { error = "Neznámý balíček Odpustků." });
+    if (delta == 0) return Results.BadRequest(new { error = "Neznámý balíček." });
 
     wallet.OdpustkyBalance += delta;
     if (isVip) wallet.IsVip = true;
@@ -99,15 +154,49 @@ api.MapPost("/wallet/purchase", async (PurchasePackageRequest req, ZpovedniceDbC
     });
 
     await db.SaveChangesAsync();
+    return Results.Ok(new PurchaseResponse(true, $"Připsáno: {description}.", ToWalletDto(wallet)));
+});
 
-    return Results.Ok(new PurchaseResponse(
-        Success: true,
-        Message: $"Děkujeme! Připsáno: {description}.",
-        Wallet: ToWalletDto(wallet)
+// Solo Layer 2: Socratic Deep Probe
+api.MapPost("/confessions/solo/probe", async (
+    SoloProbeRequest req,
+    SafetyGuardrailService safety,
+    AiConfessorService ai,
+    CancellationToken ct) =>
+{
+    if (string.IsNullOrWhiteSpace(req.ConfessionText) || req.ConfessionText.Trim().Length < 8)
+        return Results.BadRequest(new { error = "Zašeptej alespoň krátkou větu (min. 8 znaků)." });
+
+    var persona = PersonaCatalog.GetById(req.PersonaId);
+    var safetyCheck = safety.Evaluate(req.ConfessionText);
+    if (safetyCheck.IsBlocked)
+    {
+        return Results.Ok(new SoloProbeResponse(
+            PersonaId: persona.PublicInfo.Id,
+            PersonaName: "Bezpečnostní strážce",
+            MirrorReaction: safetyCheck.CrisisHelp!.Message,
+            ProbingQuestion: string.Empty,
+            QuickChoices: [],
+            UsedLiveAi: false,
+            IsSafetyIntervention: true,
+            CrisisHelp: safetyCheck.CrisisHelp
+        ));
+    }
+
+    var probe = await ai.GenerateSoloProbeAsync(persona, req.ConfessionText.Trim(), req.Intensity, ct);
+    return Results.Ok(new SoloProbeResponse(
+        PersonaId: persona.PublicInfo.Id,
+        PersonaName: persona.PublicInfo.Name,
+        MirrorReaction: probe.MirrorReaction,
+        ProbingQuestion: probe.ProbingQuestion,
+        QuickChoices: probe.QuickChoices,
+        UsedLiveAi: probe.UsedLiveAi,
+        IsSafetyIntervention: false,
+        CrisisHelp: null
     ));
 });
 
-// Solo Confession
+// Solo Layer 3: Full Absolution & Penance + Atlas Evolution
 api.MapPost("/confessions/solo", async (
     SoloConfessionRequest req,
     ZpovedniceDbContext db,
@@ -119,10 +208,10 @@ api.MapPost("/confessions/solo", async (
         return Results.BadRequest(new { error = "Napiš alespoň krátkou větu své zpovědi (min. 8 znaků)." });
 
     var wallet = await GetOrCreateWalletAsync(db, req.ClientId);
+    var profile = await DesireProfileService.GetOrCreateAsync(db, req.ClientId);
     var persona = PersonaCatalog.GetById(req.PersonaId);
 
-    // 1. Mandatory Safety Guardrail
-    var safetyCheck = safety.Evaluate(req.ConfessionText);
+    var safetyCheck = safety.Evaluate($"{req.ConfessionText} {req.DeepAnswer}");
     if (safetyCheck.IsBlocked)
     {
         return Results.Ok(new SoloConfessionResponse(
@@ -132,28 +221,24 @@ api.MapPost("/confessions/solo", async (
             SinIndex: 0,
             Archetype: "Bezpečnostní zastavení",
             AbsolutionText: safetyCheck.CrisisHelp!.Message,
-            Penance: new PenanceDto("Krok k bezpečí", "Prosím využij některý z kontaktů níže. Nejsi na to sám/sama.", "Okamžitě", "Bezpečí"),
+            Penance: new PenanceDto("Krok k bezpečí", "Prosím využij některý z kontaktů níže.", "Okamžitě", "Bezpečí"),
             VoiceScript: string.Empty,
             UsedLiveAi: false,
             IsSafetyIntervention: true,
             CrisisHelp: safetyCheck.CrisisHelp,
-            Wallet: ToWalletDto(wallet)
+            Wallet: ToWalletDto(wallet),
+            Profile: DesireProfileService.ToDto(profile)
         ));
     }
 
-    // 2. Credit check for premium personas
-    var cost = wallet.IsVip ? 0 : persona.PublicInfo.OdpustkyCost;
+    var cost = (!billingEnabled || wallet.IsVip) ? 0 : persona.PublicInfo.OdpustkyCost;
     if (cost > 0 && wallet.OdpustkyBalance < cost)
     {
-        return Results.Json(new
-        {
-            error = $"Zpovědník {persona.PublicInfo.Name} vyžaduje {cost} Odpustek. Pořiď si balíček Odpustků nebo zvol Otce Dominika zdarma.",
-            code = "INSUFFICIENT_ODPUSTKY"
-        }, statusCode: StatusCodes.Status402PaymentRequired);
+        return Results.Json(new { error = $"Vyžaduje {cost} Odpustek.", code = "INSUFFICIENT_ODPUSTKY" }, statusCode: 402);
     }
 
-    // 3. Generate Absolution & Penance
-    var aiResult = await ai.GenerateSoloAbsolutionAsync(persona, req.ConfessionText.Trim(), req.Intensity, ct);
+    var aiResult = await ai.GenerateSoloAbsolutionAsync(
+        persona, req.ConfessionText.Trim(), req.Intensity, req.ProbeQuestion, req.DeepAnswer, req.ContextMode, ct);
 
     if (cost > 0)
     {
@@ -171,7 +256,10 @@ api.MapPost("/confessions/solo", async (
     wallet.TotalConfessions += 1;
     wallet.UpdatedAt = DateTime.UtcNow;
 
-    // 4. Store ONLY ephemeral session (raw confession text is NOT persisted!)
+    // Evolve privacy-preserving Desire Atlas (no raw text saved!)
+    DesireProfileService.UpdateFromSoloConfession(
+        profile, req.ConfessionText, req.DeepAnswer, persona.PublicInfo.Id, req.Intensity, aiResult.Archetype, aiResult.Penance.Title);
+
     var session = new ConfessionSessionEntity
     {
         ClientId = wallet.ClientId,
@@ -187,7 +275,6 @@ api.MapPost("/confessions/solo", async (
     };
     db.ConfessionSessions.Add(session);
 
-    // 5. Optional anonymous publish to Sin Wall
     if (req.PublishToWall)
     {
         db.SinWallEntries.Add(new SinWallEntryEntity
@@ -216,17 +303,15 @@ api.MapPost("/confessions/solo", async (
         UsedLiveAi: aiResult.UsedLiveAi,
         IsSafetyIntervention: false,
         CrisisHelp: null,
-        Wallet: ToWalletDto(wallet)
+        Wallet: ToWalletDto(wallet),
+        Profile: DesireProfileService.ToDto(profile)
     ));
 });
 
 // Burn to Absolve — hard-deletes session row from MSSQL
 api.MapDelete("/confessions/{sessionId:guid}/burn", async (Guid sessionId, ZpovedniceDbContext db) =>
 {
-    var deleted = await db.ConfessionSessions
-        .Where(s => s.Id == sessionId)
-        .ExecuteDeleteAsync();
-
+    var deleted = await db.ConfessionSessions.Where(s => s.Id == sessionId).ExecuteDeleteAsync();
     return Results.Ok(new
     {
         burned = true,
@@ -235,25 +320,25 @@ api.MapDelete("/confessions/{sessionId:guid}/burn", async (Guid sessionId, Zpove
     });
 });
 
-// Couple Mode — Create ephemeral room
+// Couple Mode 2.0 — Create ephemeral room ("deck" | "confession" | "honesty")
 api.MapPost("/couple/rooms", async (CreateCoupleRoomRequest req, ZpovedniceDbContext db) =>
 {
-    var roomCode = GenerateRoomCode();
+    var normalizedMode = req.Mode is "confession" or "honesty" ? req.Mode : "deck";
     var room = new CoupleRoomEntity
     {
-        RoomCode = roomCode,
+        RoomCode = GenerateRoomCode(),
         PersonaId = PersonaCatalog.GetById(req.PersonaId).PublicInfo.Id,
         Intensity = string.IsNullOrWhiteSpace(req.Intensity) ? "spicy" : req.Intensity,
+        Mode = normalizedMode,
         ExpiresAt = DateTime.UtcNow.AddHours(12)
     };
 
     db.CoupleRooms.Add(room);
     await db.SaveChangesAsync();
-
     return Results.Ok(ToCoupleStatus(room));
 });
 
-// Couple Mode — Get room status (NEVER leaks raw partner confessions!)
+// Couple Mode 2.0 — Room status (NEVER leaks raw partner cards or confessions!)
 api.MapGet("/couple/rooms/{roomCode}", async (string roomCode, ZpovedniceDbContext db) =>
 {
     var normalized = roomCode.Trim().ToUpperInvariant();
@@ -264,7 +349,7 @@ api.MapGet("/couple/rooms/{roomCode}", async (string roomCode, ZpovedniceDbConte
     return Results.Ok(ToCoupleStatus(room));
 });
 
-// Couple Mode — Submit Partner A or B secret confession
+// Couple Mode 2.0 — Submit Partner A or B (Deck OR Confession OR Brave Honesty)
 api.MapPost("/couple/rooms/{roomCode}/submit", async (
     string roomCode,
     SubmitCoupleConfessionRequest req,
@@ -278,75 +363,91 @@ api.MapPost("/couple/rooms/{roomCode}/submit", async (
     if (room is null)
         return Results.NotFound(new { error = "Párová zpovědnice nebyla nalezena." });
 
-    if (string.IsNullOrWhiteSpace(req.ConfessionText) || req.ConfessionText.Trim().Length < 8)
-        return Results.BadRequest(new { error = "Napiš alespoň krátké tajné přání (min. 8 znaků)." });
-
-    var safetyCheck = safety.Evaluate(req.ConfessionText);
-    if (safetyCheck.IsBlocked)
-        return Results.BadRequest(new { error = safetyCheck.CrisisHelp!.Message, crisisHelp = safetyCheck.CrisisHelp });
-
-    var boundariesText = req.Boundaries is { Count: > 0 } ? string.Join(", ", req.Boundaries) : null;
     var role = req.PartnerRole.Trim().ToUpperInvariant();
+    if (role is not ("A" or "B"))
+        return Results.BadRequest(new { error = "Role musí být 'A' nebo 'B'." });
 
-    if (role == "A")
+    if (room.Mode == "deck")
     {
-        room.PartnerAConfession = req.ConfessionText.Trim();
-        room.PartnerABoundaries = boundariesText;
-        room.PartnerASubmitted = true;
-    }
-    else if (role == "B")
-    {
-        room.PartnerBConfession = req.ConfessionText.Trim();
-        room.PartnerBBoundaries = boundariesText;
-        room.PartnerBSubmitted = true;
+        if (req.CardVotes is null || req.CardVotes.Count < 4)
+            return Results.BadRequest(new { error = "Ohodnoť alespoň 4 tajné karty, aby Zpovědník našel shody." });
+
+        var cardsJson = JsonSerializer.Serialize(req.CardVotes);
+        if (role == "A") { room.PartnerACardsJson = cardsJson; room.PartnerASubmitted = true; }
+        else { room.PartnerBCardsJson = cardsJson; room.PartnerBSubmitted = true; }
     }
     else
     {
-        return Results.BadRequest(new { error = "Role musí být 'A' nebo 'B'." });
+        if (string.IsNullOrWhiteSpace(req.ConfessionText) || req.ConfessionText.Trim().Length < 8)
+            return Results.BadRequest(new { error = "Napiš alespoň krátkou větu (min. 8 znaků)." });
+
+        var safetyCheck = safety.Evaluate(req.ConfessionText);
+        if (safetyCheck.IsBlocked)
+            return Results.BadRequest(new { error = safetyCheck.CrisisHelp!.Message, crisisHelp = safetyCheck.CrisisHelp });
+
+        var boundariesText = req.Boundaries is { Count: > 0 } ? string.Join(", ", req.Boundaries) : null;
+        if (role == "A")
+        {
+            room.PartnerAConfession = req.ConfessionText.Trim();
+            room.PartnerABoundaries = boundariesText;
+            room.PartnerASubmitted = true;
+        }
+        else
+        {
+            room.PartnerBConfession = req.ConfessionText.Trim();
+            room.PartnerBBoundaries = boundariesText;
+            room.PartnerBSubmitted = true;
+        }
     }
 
-    // Once both partners submitted, run Blind Desire Matching and IMMEDIATELY wipe raw partner confessions!
+    // Once both submitted -> synthesize Evening Scenario & IMMEDIATELY WIPE raw secrets!
     if (room.PartnerASubmitted && room.PartnerBSubmitted && string.IsNullOrWhiteSpace(room.ScenarioJson))
     {
         var wallet = await GetOrCreateWalletAsync(db, req.ClientId);
-        var coupleCost = wallet.IsVip ? 0 : 2;
+        var coupleCost = (!billingEnabled || wallet.IsVip) ? 0 : 2;
         if (coupleCost > 0 && wallet.OdpustkyBalance < coupleCost)
         {
             await db.SaveChangesAsync(ct);
-            return Results.Json(new
-            {
-                error = "Odemčení společného Večera rozhřešení vyžaduje 2 Odpustky (nebo členství Řád Hříšníků).",
-                code = "INSUFFICIENT_ODPUSTKY"
-            }, statusCode: StatusCodes.Status402PaymentRequired);
+            return Results.Json(new { error = "Vyžaduje 2 Odpustky.", code = "INSUFFICIENT_ODPUSTKY" }, statusCode: 402);
         }
 
         var persona = PersonaCatalog.GetById(room.PersonaId);
-        var scenario = await ai.GenerateCoupleScenarioAsync(
-            persona,
-            room.PartnerAConfession!,
-            room.PartnerABoundaries,
-            room.PartnerBConfession!,
-            room.PartnerBBoundaries,
-            room.Intensity,
-            ct);
+        CoupleScenarioDto scenario;
+
+        if (room.Mode == "deck")
+        {
+            var votesA = JsonSerializer.Deserialize<Dictionary<string, string>>(room.PartnerACardsJson ?? "{}") ?? [];
+            var votesB = JsonSerializer.Deserialize<Dictionary<string, string>>(room.PartnerBCardsJson ?? "{}") ?? [];
+            scenario = await ai.GenerateCoupleDeckScenarioAsync(persona, votesA, votesB, room.Intensity, ct);
+        }
+        else
+        {
+            scenario = await ai.GenerateCoupleScenarioAsync(
+                persona,
+                room.Mode,
+                room.PartnerAConfession!,
+                room.PartnerABoundaries,
+                room.PartnerBConfession!,
+                room.PartnerBBoundaries,
+                room.Intensity,
+                ct);
+        }
 
         room.ScenarioJson = JsonSerializer.Serialize(scenario);
-        // Privacy by design: wipe raw confessions right after synthesis!
+
+        // Zero-leak privacy: wipe raw partner cards & texts immediately!
         room.PartnerAConfession = null;
         room.PartnerBConfession = null;
+        room.PartnerACardsJson = null;
+        room.PartnerBCardsJson = null;
+
+        var profile = await DesireProfileService.GetOrCreateAsync(db, req.ClientId);
+        DesireProfileService.UpdateFromCoupleNight(profile, scenario.ChemistryScore);
 
         if (coupleCost > 0)
         {
             wallet.OdpustkyBalance -= coupleCost;
             wallet.UpdatedAt = DateTime.UtcNow;
-            db.CreditTransactions.Add(new CreditTransactionEntity
-            {
-                ClientId = wallet.ClientId,
-                PackageCode = "couple_reveal",
-                OdpustkyDelta = -coupleCost,
-                AmountCzk = 0,
-                Description = $"Párová zpovědnice ({room.RoomCode})"
-            });
         }
     }
 
@@ -358,10 +459,7 @@ api.MapPost("/couple/rooms/{roomCode}/submit", async (
 api.MapDelete("/couple/rooms/{roomCode}/burn", async (string roomCode, ZpovedniceDbContext db) =>
 {
     var normalized = roomCode.Trim().ToUpperInvariant();
-    var deleted = await db.CoupleRooms
-        .Where(r => r.RoomCode == normalized)
-        .ExecuteDeleteAsync();
-
+    var deleted = await db.CoupleRooms.Where(r => r.RoomCode == normalized).ExecuteDeleteAsync();
     return Results.Ok(new
     {
         burned = true,
@@ -370,7 +468,7 @@ api.MapDelete("/couple/rooms/{roomCode}/burn", async (string roomCode, Zpovednic
     });
 });
 
-// Sin Wall — List
+// Sin Wall
 api.MapGet("/wall", async (ZpovedniceDbContext db) =>
 {
     var entries = await db.SinWallEntries
@@ -380,39 +478,31 @@ api.MapGet("/wall", async (ZpovedniceDbContext db) =>
             e.Id, e.ConfessionText, e.PersonaName, e.SinIndex, e.Archetype,
             e.Category, e.ForgivenCount, e.HellCount, e.CreatedAt))
         .ToListAsync();
-
     return Results.Ok(entries);
 });
 
-// Sin Wall — Vote ("forgive" or "hell")
 api.MapPost("/wall/{id:guid}/vote", async (Guid id, VoteSinWallRequest req, ZpovedniceDbContext db) =>
 {
     var entry = await db.SinWallEntries.FirstOrDefaultAsync(e => e.Id == id);
     if (entry is null) return Results.NotFound();
 
-    if (req.Vote.Equals("forgive", StringComparison.OrdinalIgnoreCase))
-        entry.ForgivenCount += 1;
-    else if (req.Vote.Equals("hell", StringComparison.OrdinalIgnoreCase))
-        entry.HellCount += 1;
-    else
-        return Results.BadRequest(new { error = "Hlas musí být 'forgive' nebo 'hell'." });
+    if (req.Vote.Equals("forgive", StringComparison.OrdinalIgnoreCase)) entry.ForgivenCount += 1;
+    else if (req.Vote.Equals("hell", StringComparison.OrdinalIgnoreCase)) entry.HellCount += 1;
+    else return Results.BadRequest(new { error = "Hlas musí být 'forgive' nebo 'hell'." });
 
     await db.SaveChangesAsync();
-
     return Results.Ok(new SinWallEntryDto(
         entry.Id, entry.ConfessionText, entry.PersonaName, entry.SinIndex,
         entry.Archetype, entry.Category, entry.ForgivenCount, entry.HellCount, entry.CreatedAt));
 });
 
-// Sin Wall — Publish anonymous entry
 api.MapPost("/wall", async (PublishSinWallRequest req, ZpovedniceDbContext db, SafetyGuardrailService safety) =>
 {
     if (string.IsNullOrWhiteSpace(req.ConfessionText) || req.ConfessionText.Trim().Length < 10)
         return Results.BadRequest(new { error = "Zpověď na zeď musí mít alespoň 10 znaků." });
 
     var check = safety.Evaluate(req.ConfessionText);
-    if (check.IsBlocked)
-        return Results.BadRequest(new { error = check.CrisisHelp!.Message });
+    if (check.IsBlocked) return Results.BadRequest(new { error = check.CrisisHelp!.Message });
 
     var entry = new SinWallEntryEntity
     {
@@ -427,14 +517,12 @@ api.MapPost("/wall", async (PublishSinWallRequest req, ZpovedniceDbContext db, S
 
     db.SinWallEntries.Add(entry);
     await db.SaveChangesAsync();
-
     return Results.Ok(new SinWallEntryDto(
         entry.Id, entry.ConfessionText, entry.PersonaName, entry.SinIndex,
         entry.Archetype, entry.Category, entry.ForgivenCount, entry.HellCount, entry.CreatedAt));
 });
 
 app.MapFallbackToFile("index.html");
-
 app.Run();
 
 static async Task<WalletEntity> GetOrCreateWalletAsync(ZpovedniceDbContext db, string? rawClientId)
@@ -445,13 +533,7 @@ static async Task<WalletEntity> GetOrCreateWalletAsync(ZpovedniceDbContext db, s
     var wallet = await db.Wallets.FirstOrDefaultAsync(w => w.ClientId == clientId);
     if (wallet is null)
     {
-        wallet = new WalletEntity
-        {
-            ClientId = clientId,
-            OdpustkyBalance = 3, // Welcome gift: 3 free Odpustky to explore everything!
-            IsVip = false,
-            TotalConfessions = 0
-        };
+        wallet = new WalletEntity { ClientId = clientId, OdpustkyBalance = 3 };
         db.Wallets.Add(wallet);
         await db.SaveChangesAsync();
     }
@@ -461,18 +543,20 @@ static async Task<WalletEntity> GetOrCreateWalletAsync(ZpovedniceDbContext db, s
 static WalletDto ToWalletDto(WalletEntity w) =>
     new(w.ClientId, w.OdpustkyBalance, w.IsVip, w.TotalConfessions);
 
+static DailyQuestionDto ToDailyDto(DailyQuestionEntity q) =>
+    new(q.Id, q.QuestionKey, q.QuestionText, q.OptionA, q.OptionB, q.VotesA, q.VotesB, q.ConfessorCommentA, q.ConfessorCommentB);
+
 static CoupleRoomStatusResponse ToCoupleStatus(CoupleRoomEntity room)
 {
     CoupleScenarioDto? scenario = null;
     if (!string.IsNullOrWhiteSpace(room.ScenarioJson))
-    {
         scenario = JsonSerializer.Deserialize<CoupleScenarioDto>(room.ScenarioJson);
-    }
 
     return new CoupleRoomStatusResponse(
         RoomCode: room.RoomCode,
         PersonaId: room.PersonaId,
         Intensity: room.Intensity,
+        Mode: room.Mode,
         PartnerASubmitted: room.PartnerASubmitted,
         PartnerBSubmitted: room.PartnerBSubmitted,
         IsReady: scenario is not null,
@@ -484,7 +568,6 @@ static CoupleRoomStatusResponse ToCoupleStatus(CoupleRoomEntity room)
 static string GenerateRoomCode()
 {
     const string chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-    var rng = Random.Shared;
-    var suffix = new string(Enumerable.Range(0, 4).Select(_ => chars[rng.Next(chars.Length)]).ToArray());
+    var suffix = new string(Enumerable.Range(0, 4).Select(_ => chars[Random.Shared.Next(chars.Length)]).ToArray());
     return $"SIN-{suffix}";
 }

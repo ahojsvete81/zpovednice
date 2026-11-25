@@ -21,12 +21,73 @@ public record WalletDto(
     int TotalConfessions
 );
 
+public record DesireProfileDto(
+    string ClientId,
+    int DominanceAxis,
+    int TabooAxis,
+    int MindBodyAxis,
+    int RitualAxis,
+    int IntensityAxis,
+    int OpennessAxis,
+    int CompletedConfessions,
+    int CompletedPenances,
+    int CompletedCoupleNights,
+    int InitiationLevel,
+    int RevealPercent,
+    string PrimaryArchetype,
+    string PortraitSummary,
+    string BlindSpotInsight,
+    string? LastPenanceTitle
+);
+
+public record CompletePenanceRequest(
+    string ClientId,
+    string PenanceTitle,
+    string Feedback // "bolder" | "perfect" | "gentler"
+);
+
+public record DailyQuestionDto(
+    int Id,
+    string QuestionKey,
+    string QuestionText,
+    string OptionA,
+    string OptionB,
+    int VotesA,
+    int VotesB,
+    string ConfessorCommentA,
+    string ConfessorCommentB
+);
+
+public record VoteDailyQuestionRequest(string Choice); // "A" or "B"
+
+// 3-Layer Solo Confession Probe (Layer 2)
+public record SoloProbeRequest(
+    string ClientId,
+    string PersonaId,
+    string ConfessionText,
+    string Intensity
+);
+
+public record SoloProbeResponse(
+    string PersonaId,
+    string PersonaName,
+    string MirrorReaction,
+    string ProbingQuestion,
+    List<string> QuickChoices,
+    bool UsedLiveAi,
+    bool IsSafetyIntervention,
+    CrisisHelpDto? CrisisHelp
+);
+
 public record SoloConfessionRequest(
     string ClientId,
     string PersonaId,
     string ConfessionText,
     string Intensity,
-    bool PublishToWall = false
+    bool PublishToWall = false,
+    string? ProbeQuestion = null,
+    string? DeepAnswer = null,
+    string ContextMode = "solo" // "solo" | "partner"
 );
 
 public record PenanceDto(
@@ -55,19 +116,40 @@ public record SoloConfessionResponse(
     bool UsedLiveAi,
     bool IsSafetyIntervention,
     CrisisHelpDto? CrisisHelp,
-    WalletDto Wallet
+    WalletDto Wallet,
+    DesireProfileDto Profile
+);
+
+// Couple Mode 2.0
+public record DesireCardDto(
+    string Id,
+    string Category,
+    string Title,
+    string Prompt,
+    int SpiceLevel,
+    string? ComplementaryCardId,
+    string? PolarityLabel
+);
+
+public record MatchedDesireDto(
+    string Title,
+    string Kind, // "exact" | "polarity"
+    string MatchStrength, // "Hořící shoda" | "Magnetická polarita" | "Jemná jiskra"
+    string Description
 );
 
 public record CreateCoupleRoomRequest(
     string ClientId,
     string PersonaId,
-    string Intensity
+    string Intensity,
+    string Mode = "deck" // "deck" | "confession" | "honesty"
 );
 
 public record CoupleRoomStatusResponse(
     string RoomCode,
     string PersonaId,
     string Intensity,
+    string Mode,
     bool PartnerASubmitted,
     bool PartnerBSubmitted,
     bool IsReady,
@@ -78,8 +160,9 @@ public record CoupleRoomStatusResponse(
 public record SubmitCoupleConfessionRequest(
     string ClientId,
     string PartnerRole, // "A" or "B"
-    string ConfessionText,
-    List<string> Boundaries
+    string? ConfessionText,
+    List<string>? Boundaries,
+    Dictionary<string, string>? CardVotes // cardId -> "yes" | "maybe" | "no"
 );
 
 public record CoupleStepDto(
@@ -87,15 +170,21 @@ public record CoupleStepDto(
     string Phase,
     string Title,
     string Instruction,
-    string Duration
+    string GentleVariation,
+    string BoldVariation,
+    string Duration,
+    int DurationMinutes
 );
 
 public record CoupleScenarioDto(
     string Title,
+    string Mode,
     string SharedSparkSummary,
     int ChemistryScore,
     string ArchetypePair,
     string ConfessorIntro,
+    string DaytimeSparkMessage,
+    List<MatchedDesireDto> MatchedDesires,
     List<CoupleStepDto> Steps,
     string ClosingAbsolution,
     bool UsedLiveAi
@@ -113,7 +202,7 @@ public record SinWallEntryDto(
     DateTime CreatedAt
 );
 
-public record VoteSinWallRequest(string Vote); // "forgive" or "hell"
+public record VoteSinWallRequest(string Vote);
 
 public record PublishSinWallRequest(
     string ConfessionText,
@@ -125,7 +214,7 @@ public record PublishSinWallRequest(
 
 public record PurchasePackageRequest(
     string ClientId,
-    string PackageCode // "pack_10", "couple_night", "vip_month"
+    string PackageCode
 );
 
 public record PurchaseResponse(
