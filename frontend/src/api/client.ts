@@ -1,16 +1,17 @@
 import type {
   CoupleModeType,
   CoupleRoomStatus,
-  DailyQuestion,
   DesireCard,
   DesireProfile,
+  GenderOption,
+  GroupPoolState,
   HealthStatus,
   IntensityLevel,
   Persona,
+  PoolHeatMode,
+  PoolPresets,
+  SeekingOption,
   SinWallEntry,
-  SoloConfessionResponse,
-  SoloProbeResponse,
-  Wallet,
 } from '../types/confession';
 
 const CLIENT_STORAGE_KEY = 'odpustek_client_id';
@@ -60,65 +61,122 @@ export const api = {
   getHealth: () => request<HealthStatus>('/api/health'),
   getPersonas: () => request<Persona[]>('/api/personas'),
   getCoupleCards: () => request<DesireCard[]>('/api/couple/cards'),
-  getWallet: (clientId: string) => request<Wallet>(`/api/wallet/${encodeURIComponent(clientId)}`),
   getProfile: (clientId: string) =>
     request<DesireProfile>(`/api/profile/${encodeURIComponent(clientId)}`),
 
-  completePenance: (payload: {
+  // ─── TAJNÝ KRUH (GROUP POOL) ───────────────────────────────────────────────
+  getPoolPresets: () => request<PoolPresets>('/api/pool/presets'),
+
+  createPool: (payload: {
     clientId: string;
-    penanceTitle: string;
-    feedback: 'bolder' | 'perfect' | 'gentler';
+    title: string;
+    heatMode: PoolHeatMode;
+    gender: GenderOption;
+    seeking: SeekingOption;
+    clue1: string;
   }) =>
-    request<{ message: string; profile: DesireProfile }>('/api/profile/penance-complete', {
+    request<GroupPoolState>('/api/pool', {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
 
-  getDailyQuestion: () => request<DailyQuestion>('/api/daily-question'),
-
-  voteDailyQuestion: (id: number, choice: 'A' | 'B') =>
-    request<DailyQuestion>(`/api/daily-question/${id}/vote`, {
-      method: 'POST',
-      body: JSON.stringify({ choice }),
-    }),
-
-  purchasePackage: (clientId: string, packageCode: 'couple_night' | 'pack_10' | 'vip_month') =>
-    request<{ success: boolean; message: string; wallet: Wallet }>('/api/wallet/purchase', {
-      method: 'POST',
-      body: JSON.stringify({ clientId, packageCode }),
-    }),
-
-  probeSoloConfession: (payload: {
-    clientId: string;
-    personaId: string;
-    confessionText: string;
-    intensity: IntensityLevel;
-  }) =>
-    request<SoloProbeResponse>('/api/confessions/solo/probe', {
+  joinPool: (
+    poolCode: string,
+    payload: {
+      clientId: string;
+      gender: GenderOption;
+      seeking: SeekingOption;
+      clue1: string;
+    }
+  ) =>
+    request<GroupPoolState>(`/api/pool/${encodeURIComponent(poolCode)}/join`, {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
 
-  submitSoloConfession: (payload: {
-    clientId: string;
-    personaId: string;
-    confessionText: string;
-    intensity: IntensityLevel;
-    publishToWall: boolean;
-    probeQuestion?: string;
-    deepAnswer?: string;
-    contextMode: 'solo' | 'partner';
-  }) =>
-    request<SoloConfessionResponse>('/api/confessions/solo', {
+  getPoolState: (poolCode: string, clientId: string) =>
+    request<GroupPoolState>(
+      `/api/pool/${encodeURIComponent(poolCode)}/state?clientId=${encodeURIComponent(clientId)}`
+    ),
+
+  dropPoolSpark: (
+    poolCode: string,
+    payload: { clientId: string; text: string; intentLevel: string }
+  ) =>
+    request<GroupPoolState>(`/api/pool/${encodeURIComponent(poolCode)}/sparks`, {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
 
-  burnSoloSession: (sessionId: string) =>
-    request<{ burned: boolean; message: string }>(`/api/confessions/${sessionId}/burn`, {
-      method: 'DELETE',
+  dropSystemSpark: (poolCode: string, clientId: string) =>
+    request<GroupPoolState>(
+      `/api/pool/${encodeURIComponent(poolCode)}/sparks/system?clientId=${encodeURIComponent(clientId)}`,
+      { method: 'POST' }
+    ),
+
+  catchPoolSpark: (
+    poolCode: string,
+    sparkId: string,
+    payload: { clientId: string; pitchText: string }
+  ) =>
+    request<GroupPoolState>(
+      `/api/pool/${encodeURIComponent(poolCode)}/sparks/${sparkId}/catch`,
+      { method: 'POST', body: JSON.stringify(payload) }
+    ),
+
+  selectPoolCatch: (poolCode: string, sparkId: string, catchId: string, clientId: string) =>
+    request<GroupPoolState>(
+      `/api/pool/${encodeURIComponent(poolCode)}/sparks/${sparkId}/select/${catchId}?clientId=${encodeURIComponent(clientId)}`,
+      { method: 'POST' }
+    ),
+
+  reportPoolSpark: (poolCode: string, sparkId: string) =>
+    request<{ reported: boolean; burned: boolean }>(
+      `/api/pool/${encodeURIComponent(poolCode)}/sparks/${sparkId}/report`,
+      { method: 'POST' }
+    ),
+
+  submitChamberChemistry: (
+    chamberId: string,
+    payload: { clientId: string; farLimit: string; dynamicStyle: string; whisperLine: string }
+  ) =>
+    request<GroupPoolState>(`/api/pool/chambers/${chamberId}/chemistry`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
     }),
 
+  advanceChamber: (
+    chamberId: string,
+    payload: {
+      clientId: string;
+      action:
+        | 'consent_stage1'
+        | 'signal_a_sent'
+        | 'signal_a_spotted'
+        | 'signal_b_sent'
+        | 'signal_b_spotted'
+        | 'set_spot';
+      meetingSpot?: string;
+    }
+  ) =>
+    request<GroupPoolState>(`/api/pool/chambers/${chamberId}/advance`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  burnChamber: (chamberId: string, clientId: string) =>
+    request<GroupPoolState>(
+      `/api/pool/chambers/${chamberId}/burn?clientId=${encodeURIComponent(clientId)}`,
+      { method: 'DELETE' }
+    ),
+
+  spawnPoolDemoBot: (poolCode: string, clientId: string) =>
+    request<GroupPoolState>(
+      `/api/pool/${encodeURIComponent(poolCode)}/demo-bot?clientId=${encodeURIComponent(clientId)}`,
+      { method: 'POST' }
+    ),
+
+  // ─── COUPLE MODE 2.0 ───────────────────────────────────────────────────────
   createCoupleRoom: (
     clientId: string,
     personaId: string,
@@ -154,6 +212,7 @@ export const api = {
       { method: 'DELETE' }
     ),
 
+  // ─── SIN WALL ──────────────────────────────────────────────────────────────
   getSinWall: () => request<SinWallEntry[]>('/api/wall'),
 
   voteSinWall: (id: string, vote: 'forgive' | 'hell') =>

@@ -40,56 +40,6 @@ public record DesireProfileDto(
     string? LastPenanceTitle
 );
 
-public record CompletePenanceRequest(
-    string ClientId,
-    string PenanceTitle,
-    string Feedback // "bolder" | "perfect" | "gentler"
-);
-
-public record DailyQuestionDto(
-    int Id,
-    string QuestionKey,
-    string QuestionText,
-    string OptionA,
-    string OptionB,
-    int VotesA,
-    int VotesB,
-    string ConfessorCommentA,
-    string ConfessorCommentB
-);
-
-public record VoteDailyQuestionRequest(string Choice); // "A" or "B"
-
-// 3-Layer Solo Confession Probe (Layer 2)
-public record SoloProbeRequest(
-    string ClientId,
-    string PersonaId,
-    string ConfessionText,
-    string Intensity
-);
-
-public record SoloProbeResponse(
-    string PersonaId,
-    string PersonaName,
-    string MirrorReaction,
-    string ProbingQuestion,
-    List<string> QuickChoices,
-    bool UsedLiveAi,
-    bool IsSafetyIntervention,
-    CrisisHelpDto? CrisisHelp
-);
-
-public record SoloConfessionRequest(
-    string ClientId,
-    string PersonaId,
-    string ConfessionText,
-    string Intensity,
-    bool PublishToWall = false,
-    string? ProbeQuestion = null,
-    string? DeepAnswer = null,
-    string ContextMode = "solo" // "solo" | "partner"
-);
-
 public record PenanceDto(
     string Title,
     string Description,
@@ -104,23 +54,7 @@ public record CrisisHelpDto(
 
 public record HelplineDto(string Name, string Contact, string Note);
 
-public record SoloConfessionResponse(
-    Guid SessionId,
-    string PersonaId,
-    string PersonaName,
-    int SinIndex,
-    string Archetype,
-    string AbsolutionText,
-    PenanceDto Penance,
-    string VoiceScript,
-    bool UsedLiveAi,
-    bool IsSafetyIntervention,
-    CrisisHelpDto? CrisisHelp,
-    WalletDto Wallet,
-    DesireProfileDto Profile
-);
-
-// Couple Mode 2.0
+// ─── COUPLE MODE 2.0 ──────────────────────────────────────────────────────────
 public record DesireCardDto(
     string Id,
     string Category,
@@ -133,8 +67,8 @@ public record DesireCardDto(
 
 public record MatchedDesireDto(
     string Title,
-    string Kind, // "exact" | "polarity"
-    string MatchStrength, // "Hořící shoda" | "Magnetická polarita" | "Jemná jiskra"
+    string Kind,
+    string MatchStrength,
     string Description
 );
 
@@ -142,7 +76,7 @@ public record CreateCoupleRoomRequest(
     string ClientId,
     string PersonaId,
     string Intensity,
-    string Mode = "deck" // "deck" | "confession" | "honesty"
+    string Mode = "deck"
 );
 
 public record CoupleRoomStatusResponse(
@@ -159,10 +93,10 @@ public record CoupleRoomStatusResponse(
 
 public record SubmitCoupleConfessionRequest(
     string ClientId,
-    string PartnerRole, // "A" or "B"
+    string PartnerRole,
     string? ConfessionText,
     List<string>? Boundaries,
-    Dictionary<string, string>? CardVotes // cardId -> "yes" | "maybe" | "no"
+    Dictionary<string, string>? CardVotes
 );
 
 public record CoupleStepDto(
@@ -190,6 +124,134 @@ public record CoupleScenarioDto(
     bool UsedLiveAi
 );
 
+// ─── TAJNÝ KRUH (GROUP POOL FOR 6–30 PEOPLE) ─────────────────────────────────
+public record PoolPresetsDto(
+    string[] CluePresets,
+    string[] QuickSparks,
+    string[] MeetingSpots
+);
+
+public record CreatePoolRequest(
+    string ClientId,
+    string Title,
+    string HeatMode, // "flirt" | "night" | "unleashed"
+    string Gender,   // "M" | "F" | "X"
+    string Seeking,  // "M" | "F" | "Any"
+    string Clue1
+);
+
+public record JoinPoolRequest(
+    string ClientId,
+    string Gender,
+    string Seeking,
+    string Clue1
+);
+
+public record CreateSparkRequest(
+    string ClientId,
+    string Text,
+    string IntentLevel
+);
+
+public record CatchSparkRequest(
+    string ClientId,
+    string PitchText
+);
+
+public record PoolCatchDto(
+    Guid CatchId,
+    string CatcherMaskName,
+    string CatcherMaskSymbol,
+    string PitchText,
+    string Status
+);
+
+public record PoolSparkDto(
+    Guid Id,
+    string AuthorMaskName,
+    string AuthorMaskSymbol,
+    string Text,
+    string IntentLevel,
+    bool IsSystemSpark,
+    bool IsMine,
+    bool AlreadyCaughtByMe,
+    int CatchCount,
+    List<PoolCatchDto> IncomingCatches, // Visible ONLY to spark author!
+    DateTime CreatedAt
+);
+
+public record ChemistryAnswersDto(
+    string FarLimit,
+    string DynamicStyle,
+    string WhisperLine
+);
+
+public record SubmitChemistryRequest(
+    string ClientId,
+    string FarLimit,
+    string DynamicStyle,
+    string WhisperLine
+);
+
+public record AdvanceChamberRequest(
+    string ClientId,
+    string Action, // "consent_stage1" | "signal_a_sent" | "signal_a_spotted" | "signal_b_sent" | "signal_b_spotted" | "set_spot"
+    string? MeetingSpot = null
+);
+
+public record MaskChamberDto(
+    Guid Id,
+    int Stage, // 1=Chemistry, 2=SignalA, 3=SignalB, 4=Rendezvous
+    string MyRole, // "A" (Proposer) or "B" (Catcher)
+    string MyMaskName,
+    string MyMaskSymbol,
+    string OtherMaskName,
+    string OtherMaskSymbol,
+    string? OtherClue1, // Revealed after both complete Stage 1!
+    string SparkText,
+    bool MyAnswersSubmitted,
+    bool OtherAnswersSubmitted,
+    ChemistryAnswersDto? MyAnswers,
+    ChemistryAnswersDto? OtherAnswers, // Revealed ONLY when both submitted!
+    bool MyConsentStage1,
+    bool OtherConsentStage1,
+    string? MySignalInstruction,
+    string? WatchForSignalHint,
+    bool SignalASent,
+    bool SignalAConfirmedByB,
+    bool SignalBSent,
+    bool SignalBConfirmedByA,
+    string? Passphrase,
+    string? MeetingSpot,
+    string? Icebreaker
+);
+
+public record PoolMemberMeDto(
+    Guid MemberId,
+    string MaskName,
+    string MaskSymbol,
+    string Gender,
+    string Seeking,
+    string Clue1,
+    int GoldenMatchesLeft
+);
+
+public record GroupPoolStateResponse(
+    string PoolCode,
+    string Title,
+    string HeatMode,
+    DateTime ExpiresAt,
+    int MemberCount,
+    int OpenSparksCount,
+    int ActiveChambersCount,
+    int CompletedRendezvousCount,
+    PoolMemberMeDto? Me,
+    List<PoolSparkDto> Sparks,
+    MaskChamberDto? ActiveChamber,
+    bool LastChamberBurnedNotice
+);
+
+// ─── SIN WALL ─────────────────────────────────────────────────────────────────
 public record SinWallEntryDto(
     Guid Id,
     string ConfessionText,
@@ -210,15 +272,4 @@ public record PublishSinWallRequest(
     string PersonaName,
     int SinIndex,
     string Archetype
-);
-
-public record PurchasePackageRequest(
-    string ClientId,
-    string PackageCode
-);
-
-public record PurchaseResponse(
-    bool Success,
-    string Message,
-    WalletDto Wallet
 );

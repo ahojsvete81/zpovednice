@@ -12,13 +12,6 @@ export interface Persona {
   voiceRate: number;
 }
 
-export interface Wallet {
-  clientId: string;
-  odpustkyBalance: number;
-  isVip: boolean;
-  totalConfessions: number;
-}
-
 export interface DesireProfile {
   clientId: string;
   dominanceAxis: number;
@@ -36,63 +29,6 @@ export interface DesireProfile {
   portraitSummary: string;
   blindSpotInsight: string;
   lastPenanceTitle?: string | null;
-}
-
-export interface DailyQuestion {
-  id: number;
-  questionKey: string;
-  questionText: string;
-  optionA: string;
-  optionB: string;
-  votesA: number;
-  votesB: number;
-  confessorCommentA: string;
-  confessorCommentB: string;
-}
-
-export interface Penance {
-  title: string;
-  description: string;
-  timing: string;
-  spiceLabel: string;
-}
-
-export interface Helpline {
-  name: string;
-  contact: string;
-  note: string;
-}
-
-export interface CrisisHelp {
-  message: string;
-  helplines: Helpline[];
-}
-
-export interface SoloProbeResponse {
-  personaId: string;
-  personaName: string;
-  mirrorReaction: string;
-  probingQuestion: string;
-  quickChoices: string[];
-  usedLiveAi: boolean;
-  isSafetyIntervention: boolean;
-  crisisHelp?: CrisisHelp | null;
-}
-
-export interface SoloConfessionResponse {
-  sessionId: string;
-  personaId: string;
-  personaName: string;
-  sinIndex: number;
-  archetype: string;
-  absolutionText: string;
-  penance: Penance;
-  voiceScript: string;
-  usedLiveAi: boolean;
-  isSafetyIntervention: boolean;
-  crisisHelp?: CrisisHelp | null;
-  wallet: Wallet;
-  profile: DesireProfile;
 }
 
 export interface DesireCard {
@@ -151,6 +87,97 @@ export interface CoupleRoomStatus {
   expiresAt: string;
 }
 
+// ─── TAJNÝ KRUH (GROUP POOL) ─────────────────────────────────────────────────
+export type PoolHeatMode = 'flirt' | 'night' | 'unleashed';
+export type GenderOption = 'M' | 'F' | 'X';
+export type SeekingOption = 'M' | 'F' | 'Any';
+
+export interface PoolPresets {
+  cluePresets: string[];
+  quickSparks: string[];
+  meetingSpots: string[];
+}
+
+export interface PoolMemberMe {
+  memberId: string;
+  maskName: string;
+  maskSymbol: string;
+  gender: GenderOption;
+  seeking: SeekingOption;
+  clue1: string;
+  goldenMatchesLeft: number;
+}
+
+export interface PoolCatch {
+  catchId: string;
+  catcherMaskName: string;
+  catcherMaskSymbol: string;
+  pitchText: string;
+  status: string;
+}
+
+export interface PoolSpark {
+  id: string;
+  authorMaskName: string;
+  authorMaskSymbol: string;
+  text: string;
+  intentLevel: string;
+  isSystemSpark: boolean;
+  isMine: boolean;
+  alreadyCaughtByMe: boolean;
+  catchCount: number;
+  incomingCatches: PoolCatch[];
+  createdAt: string;
+}
+
+export interface ChemistryAnswers {
+  farLimit: string;
+  dynamicStyle: string;
+  whisperLine: string;
+}
+
+export interface MaskChamber {
+  id: string;
+  stage: number; // 1=Chemistry, 2=SignalA, 3=SignalB, 4=Rendezvous
+  myRole: 'A' | 'B';
+  myMaskName: string;
+  myMaskSymbol: string;
+  otherMaskName: string;
+  otherMaskSymbol: string;
+  otherClue1?: string | null;
+  sparkText: string;
+  myAnswersSubmitted: boolean;
+  otherAnswersSubmitted: boolean;
+  myAnswers?: ChemistryAnswers | null;
+  otherAnswers?: ChemistryAnswers | null;
+  myConsentStage1: boolean;
+  otherConsentStage1: boolean;
+  mySignalInstruction?: string | null;
+  watchForSignalHint?: string | null;
+  signalASent: boolean;
+  signalAConfirmedByB: boolean;
+  signalBSent: boolean;
+  signalBConfirmedByA: boolean;
+  passphrase?: string | null;
+  meetingSpot?: string | null;
+  icebreaker?: string | null;
+}
+
+export interface GroupPoolState {
+  poolCode: string;
+  title: string;
+  heatMode: PoolHeatMode;
+  expiresAt: string;
+  memberCount: number;
+  openSparksCount: number;
+  activeChambersCount: number;
+  completedRendezvousCount: number;
+  me?: PoolMemberMe | null;
+  sparks: PoolSpark[];
+  activeChamber?: MaskChamber | null;
+  lastChamberBurnedNotice: boolean;
+}
+
 export interface SinWallEntry {
   id: string;
   confessionText: string;
@@ -168,6 +195,7 @@ export interface HealthStatus {
   database: string;
   dbConnected: boolean;
   sinWallCount: number;
+  activePools: number;
   billingEnabled: boolean;
   aiMode: string;
 }

@@ -9,23 +9,30 @@ import {
   Music,
   ScrollText,
   Sparkles,
+  Users,
 } from 'lucide-react';
 import { api, getOrCreateClientId } from './api/client';
-import type { DesireProfile, HealthStatus, Persona, Wallet } from './types/confession';
+import type { DesireProfile, HealthStatus, Persona } from './types/confession';
 import { ambientAudio } from './utils/ambientAudio';
 import { AgeGateModal } from './components/AgeGateModal';
-import { SoloConfessional } from './components/SoloConfessional';
+import { GroupPool } from './components/GroupPool';
 import { CoupleConfessional } from './components/CoupleConfessional';
 import { DesireAtlas } from './components/DesireAtlas';
 import { SinWall } from './components/SinWall';
 
-type TabKey = 'couple' | 'solo' | 'atlas' | 'wall';
+type TabKey = 'pool' | 'couple' | 'wall' | 'atlas';
 
-function parseRoomLinkFromUrl(): { roomCode: string | null; partnerRole: 'A' | 'B' | null } {
+function parseDeepLinkFromUrl(): {
+  poolCode: string | null;
+  roomCode: string | null;
+  partnerRole: 'A' | 'B' | null;
+} {
   const params = new URLSearchParams(window.location.search);
+  const pool = params.get('pool');
   const room = params.get('room');
   const partner = params.get('partner')?.toUpperCase();
   return {
+    poolCode: pool ? pool.trim().toUpperCase() : null,
     roomCode: room ? room.trim().toUpperCase() : null,
     partnerRole: partner === 'A' || partner === 'B' ? partner : null,
   };
@@ -33,23 +40,18 @@ function parseRoomLinkFromUrl(): { roomCode: string | null; partnerRole: 'A' | '
 
 export default function App() {
   const [clientId] = useState(() => getOrCreateClientId());
-  const [urlLink] = useState(() => parseRoomLinkFromUrl());
+  const [deepLink] = useState(() => parseDeepLinkFromUrl());
   const [ageAccepted, setAgeAccepted] = useState(
     () => sessionStorage.getItem('odpustek_18_ok') === '1'
   );
-  // Couple Mode is now the primary flagship mobile-first landing tab!
-  const [activeTab, setActiveTab] = useState<TabKey>('couple');
-  const [soloSeedText, setSoloSeedText] = useState<string | null>(null);
+  // Auto-open Couple tab if ?room= link was clicked; otherwise Tajný Kruh (Group Pool) is the primary flagship!
+  const [activeTab, setActiveTab] = useState<TabKey>(() =>
+    deepLink.roomCode ? 'couple' : 'pool'
+  );
   const [discreetMode, setDiscreetMode] = useState(false);
   const [ambientOn, setAmbientOn] = useState(false);
 
   const [personas, setPersonas] = useState<Persona[]>([]);
-  const [wallet, setWallet] = useState<Wallet>({
-    clientId,
-    odpustkyBalance: 3,
-    isVip: true,
-    totalConfessions: 0,
-  });
   const [profile, setProfile] = useState<DesireProfile>({
     clientId,
     dominanceAxis: 50,
@@ -65,7 +67,7 @@ export default function App() {
     revealPercent: 18,
     primaryArchetype: 'Neznámý poutník',
     portraitSummary: 'Tvůj Atlas touhy se teprve probouzí.',
-    blindSpotInsight: 'Začni Párovými Tajnými kartami nebo 3-kolovou Solo zpovědí.',
+    blindSpotInsight: 'Začni v Tajném Kruhu na párty nebo v Párové zpovědnici.',
   });
   const [health, setHealth] = useState<HealthStatus | null>(null);
   const [toast, setToast] = useState<string | null>(null);
@@ -87,15 +89,9 @@ export default function App() {
   }, [clientId]);
 
   useEffect(() => {
-    Promise.all([
-      api.getPersonas(),
-      api.getWallet(clientId),
-      api.getProfile(clientId),
-      api.getHealth(),
-    ])
-      .then(([p, w, prof, h]) => {
+    Promise.all([api.getPersonas(), api.getProfile(clientId), api.getHealth()])
+      .then(([p, prof, h]) => {
         setPersonas(p);
-        setWallet(w);
         setProfile(prof);
         setHealth(h);
       })
@@ -126,7 +122,6 @@ export default function App() {
     notify(running ? 'Zvuková kulisa: noční déšť a svíčka zapnuta.' : 'Zvuková kulisa vypnuta.');
   };
 
-  // Panic / Discreet Overlay
   if (discreetMode) {
     return (
       <div className="min-h-screen bg-slate-100 text-slate-800 p-6 sm:p-8 font-sans">
@@ -159,10 +154,10 @@ export default function App() {
   }
 
   const navItems = [
-    ['couple', 'Párová', 'Párová zpovědnice', HeartHandshake],
-    ['solo', 'Solo', 'Solo Zpovědnice', Flame],
-    ['atlas', 'Atlas', 'Atlas touhy', Compass],
+    ['pool', 'Kruh', 'Tajný Kruh (Skupina)', Users],
+    ['couple', 'Párová', 'Párová (Pro dva)', HeartHandshake],
     ['wall', 'Zeď', 'Zeď hříchů', ScrollText],
+    ['atlas', 'Atlas', 'Atlas touhy', Compass],
   ] as const;
 
   return (
@@ -174,7 +169,7 @@ export default function App() {
         <div className="mx-auto max-w-6xl px-4 sm:px-6 h-15 flex items-center justify-between gap-2">
           <button
             type="button"
-            onClick={() => setActiveTab('couple')}
+            onClick={() => setActiveTab('pool')}
             className="cursor-pointer flex items-center gap-2.5 text-left"
           >
             <div className="flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center rounded-xl border border-[#d4af37]/40 bg-gradient-to-br from-[#4d1022] to-[#1a080e] text-[#f2d57e] shadow">
@@ -185,7 +180,7 @@ export default function App() {
                 ODPUSTEK
               </span>
               <span className="text-[9px] uppercase tracking-[0.2em] text-[#b49aa5] hidden sm:block">
-                Párová & Solo zpovědnice • 18+
+                Tajný Kruh & Párová zpovědnice • 18+
               </span>
             </div>
           </button>
@@ -209,7 +204,7 @@ export default function App() {
             ))}
           </nav>
 
-          {/* Right Controls: Open Pilot Badge + Ambient Audio + Discreet Panic */}
+          {/* Right Controls */}
           <div className="flex items-center gap-1.5 sm:gap-2">
             <button
               type="button"
@@ -248,57 +243,47 @@ export default function App() {
         </div>
       </header>
 
-      {/* Main Content (extra bottom padding on mobile for thumb nav bar) */}
+      {/* Main Content */}
       <main className="flex-1 mx-auto w-full max-w-5xl px-4 sm:px-6 pt-5 pb-24 md:py-9">
-        {activeTab === 'couple' && (
-          <CoupleConfessional
+        {activeTab === 'pool' && (
+          <GroupPool
             clientId={clientId}
-            personas={personas}
-            initialRoomCode={urlLink.roomCode}
-            initialPartnerRole={urlLink.partnerRole}
+            initialPoolCode={deepLink.poolCode}
             onProfileRefresh={refreshProfile}
             onNotify={notify}
           />
         )}
 
-        {activeTab === 'solo' && (
-          <SoloConfessional
+        {activeTab === 'couple' && (
+          <CoupleConfessional
             clientId={clientId}
             personas={personas}
-            wallet={wallet}
-            initialSeedText={soloSeedText}
-            onWalletChange={setWallet}
-            onProfileChange={setProfile}
+            initialRoomCode={deepLink.roomCode}
+            initialPartnerRole={deepLink.partnerRole}
+            onProfileRefresh={refreshProfile}
             onNotify={notify}
           />
         )}
 
+        {activeTab === 'wall' && <SinWall />}
+
         {activeTab === 'atlas' && (
           <DesireAtlas
             profile={profile}
+            onStartPool={() => setActiveTab('pool')}
             onStartCouple={() => setActiveTab('couple')}
-            onStartSolo={() => setActiveTab('solo')}
           />
         )}
-
-        {activeTab === 'wall' && <SinWall />}
       </main>
 
       {/* Desktop Footer */}
       <footer className="hidden md:block border-t border-[#d4af37]/10 bg-[#070406]/90 py-4 px-4">
         <div className="mx-auto max-w-6xl flex items-center justify-between gap-3 text-xs text-[#8f7982]">
-          <p>ODPUSTEK • Otevřený pilot zdarma (.NET 10 + React + TypeScript + MSSQL)</p>
+          <p>ODPUSTEK • Tajný Kruh & Párová zpovědnice (.NET 10 + React + MSSQL)</p>
           <div className="flex items-center gap-3">
             <span className="inline-flex items-center gap-1.5">
               <Database className="h-3.5 w-3.5 text-[#d4af37]" />
               {health?.dbConnected ? 'MSSQL připojena' : 'Čekám na API…'}
-            </span>
-            <span className="text-white/20">|</span>
-            <span>
-              AI:{' '}
-              <strong className="text-[#cbb5be]">
-                {health?.aiMode === 'live-llm' ? 'Live LLM' : 'Crafted Czech Engine'}
-              </strong>
             </span>
           </div>
         </div>
@@ -313,10 +298,7 @@ export default function App() {
               <button
                 key={key}
                 type="button"
-                onClick={() => {
-                  if (key !== 'solo') setSoloSeedText(null);
-                  setActiveTab(key);
-                }}
+                onClick={() => setActiveTab(key)}
                 className={`cursor-pointer flex flex-col items-center justify-center gap-1 rounded-xl py-2 min-h-[50px] transition ${
                   active
                     ? 'bg-gradient-to-b from-[#7d152d] to-[#560d1e] text-[#fff3e2] border border-[#d4af37]/40'

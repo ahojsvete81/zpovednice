@@ -147,8 +147,8 @@ public static class DesireProfileService
         if (p.CompletedConfessions == 0 && p.CompletedCoupleNights == 0)
         {
             return (
-                "Tvůj Atlas touhy se teprve probouzí. Po první hloubkové zpovědi nebo Párovém večeru se začne kreslit tvá skutečná pečeť.",
-                "Zatím držíš karty u těla. Zkus Párové Tajné karty nebo 3-kolovou Solo zpověď — první maska spadne během dvou minut."
+                "Tvůj Atlas touhy se teprve probouzí. Po prvním večeru v Tajném Kruhu nebo Párové zpovědnici se začne kreslit tvá skutečná pečeť.",
+                "Zatím držíš masku pevně na obličeji. Zkus Tajný Kruh na párty nebo Párové Tajné karty — první jiskra přeskočí během dvou minut."
             );
         }
 

@@ -8,14 +8,12 @@ public static class DbInitializer
     {
         await db.Database.EnsureCreatedAsync();
 
-        // Idempotent schema upgrade for existing MSSQL databases (localhost + Azure SQL)
+        // Idempotent MSSQL schema upgrade (works seamlessly on existing localhost & Azure SQL DBs)
         const string upgradeSql = """
             IF COL_LENGTH('CoupleRooms', 'Mode') IS NULL
                 ALTER TABLE CoupleRooms ADD Mode NVARCHAR(32) NOT NULL DEFAULT 'deck';
-
             IF COL_LENGTH('CoupleRooms', 'PartnerACardsJson') IS NULL
                 ALTER TABLE CoupleRooms ADD PartnerACardsJson NVARCHAR(MAX) NULL;
-
             IF COL_LENGTH('CoupleRooms', 'PartnerBCardsJson') IS NULL
                 ALTER TABLE CoupleRooms ADD PartnerBCardsJson NVARCHAR(MAX) NULL;
 
@@ -39,19 +37,89 @@ public static class DbInitializer
                 );
             END;
 
-            IF OBJECT_ID('DailyQuestions', 'U') IS NULL
+            IF OBJECT_ID('GroupPools', 'U') IS NULL
             BEGIN
-                CREATE TABLE DailyQuestions (
-                    Id INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
-                    QuestionKey NVARCHAR(64) NOT NULL UNIQUE,
-                    QuestionText NVARCHAR(400) NOT NULL,
-                    OptionA NVARCHAR(200) NOT NULL,
-                    OptionB NVARCHAR(200) NOT NULL,
-                    VotesA INT NOT NULL DEFAULT 0,
-                    VotesB INT NOT NULL DEFAULT 0,
-                    ConfessorCommentA NVARCHAR(400) NOT NULL,
-                    ConfessorCommentB NVARCHAR(400) NOT NULL
+                CREATE TABLE GroupPools (
+                    PoolCode NVARCHAR(16) NOT NULL PRIMARY KEY,
+                    Title NVARCHAR(120) NOT NULL,
+                    HeatMode NVARCHAR(32) NOT NULL DEFAULT 'night',
+                    CreatedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
+                    ExpiresAt DATETIME2 NOT NULL
                 );
+            END;
+
+            IF OBJECT_ID('PoolMembers', 'U') IS NULL
+            BEGIN
+                CREATE TABLE PoolMembers (
+                    Id UNIQUEIDENTIFIER NOT NULL PRIMARY KEY,
+                    PoolCode NVARCHAR(16) NOT NULL,
+                    ClientId NVARCHAR(64) NOT NULL,
+                    MaskName NVARCHAR(64) NOT NULL,
+                    MaskSymbol NVARCHAR(16) NOT NULL,
+                    Gender NVARCHAR(8) NOT NULL,
+                    Seeking NVARCHAR(8) NOT NULL,
+                    Clue1 NVARCHAR(180) NOT NULL,
+                    GoldenMatchesLeft INT NOT NULL DEFAULT 3,
+                    IsDemoBot BIT NOT NULL DEFAULT 0,
+                    JoinedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE()
+                );
+                CREATE UNIQUE INDEX IX_PoolMembers_Pool_Client ON PoolMembers (PoolCode, ClientId);
+            END;
+
+            IF OBJECT_ID('PoolSparks', 'U') IS NULL
+            BEGIN
+                CREATE TABLE PoolSparks (
+                    Id UNIQUEIDENTIFIER NOT NULL PRIMARY KEY,
+                    PoolCode NVARCHAR(16) NOT NULL,
+                    AuthorMemberId UNIQUEIDENTIFIER NOT NULL,
+                    Text NVARCHAR(400) NOT NULL,
+                    IntentLevel NVARCHAR(32) NOT NULL,
+                    IsSystemSpark BIT NOT NULL DEFAULT 0,
+                    Status NVARCHAR(24) NOT NULL DEFAULT 'Open',
+                    ReportCount INT NOT NULL DEFAULT 0,
+                    CreatedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE()
+                );
+                CREATE INDEX IX_PoolSparks_PoolCode ON PoolSparks (PoolCode);
+            END;
+
+            IF OBJECT_ID('PoolSparkCatches', 'U') IS NULL
+            BEGIN
+                CREATE TABLE PoolSparkCatches (
+                    Id UNIQUEIDENTIFIER NOT NULL PRIMARY KEY,
+                    SparkId UNIQUEIDENTIFIER NOT NULL,
+                    CatcherMemberId UNIQUEIDENTIFIER NOT NULL,
+                    PitchText NVARCHAR(260) NOT NULL,
+                    Status NVARCHAR(24) NOT NULL DEFAULT 'Pending',
+                    CreatedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE()
+                );
+                CREATE INDEX IX_PoolSparkCatches_SparkId ON PoolSparkCatches (SparkId);
+            END;
+
+            IF OBJECT_ID('MaskChambers', 'U') IS NULL
+            BEGIN
+                CREATE TABLE MaskChambers (
+                    Id UNIQUEIDENTIFIER NOT NULL PRIMARY KEY,
+                    PoolCode NVARCHAR(16) NOT NULL,
+                    SparkId UNIQUEIDENTIFIER NOT NULL,
+                    MemberAId UNIQUEIDENTIFIER NOT NULL,
+                    MemberBId UNIQUEIDENTIFIER NOT NULL,
+                    Stage INT NOT NULL DEFAULT 1,
+                    AnswersAJson NVARCHAR(MAX) NULL,
+                    AnswersBJson NVARCHAR(MAX) NULL,
+                    ConsentStage1A BIT NOT NULL DEFAULT 0,
+                    ConsentStage1B BIT NOT NULL DEFAULT 0,
+                    SignalAText NVARCHAR(300) NOT NULL,
+                    SignalASent BIT NOT NULL DEFAULT 0,
+                    SignalAConfirmedByB BIT NOT NULL DEFAULT 0,
+                    SignalBText NVARCHAR(300) NOT NULL,
+                    SignalBSent BIT NOT NULL DEFAULT 0,
+                    SignalBConfirmedByA BIT NOT NULL DEFAULT 0,
+                    Passphrase NVARCHAR(160) NOT NULL,
+                    MeetingSpot NVARCHAR(120) NOT NULL,
+                    Icebreaker NVARCHAR(300) NOT NULL,
+                    CreatedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE()
+                );
+                CREATE INDEX IX_MaskChambers_PoolCode ON MaskChambers (PoolCode);
             END;
             """;
 
@@ -65,6 +133,17 @@ public static class DbInitializer
             [
                 new()
                 {
+                    ConfessionText = "Na poslední chatě s partou jsem celou noc nemohl spustit oči z jedné holky od vedlejšího stolu, ale nikdo z nás nenašel odvahu udělat první krok.",
+                    PersonaName = "Mefisto",
+                    SinIndex = 84,
+                    Archetype = "Lovec tajných pohledů",
+                    Category = "Tajný Kruh",
+                    ForgivenCount = 196,
+                    HellCount = 14,
+                    CreatedAt = DateTime.UtcNow.AddHours(-16)
+                },
+                new()
+                {
                     ConfessionText = "Ve dne vedu tým dvaceti lidí a řeším milionové rozpočty. V noci ale sním jen o tom, aby mi partner zabavil telefon, vzal si šátek a na hodinu mi řekl přesně, co mám dělat.",
                     PersonaName = "Matka představená",
                     SinIndex = 86,
@@ -72,7 +151,7 @@ public static class DbInitializer
                     Category = "Dominance",
                     ForgivenCount = 142,
                     HellCount = 19,
-                    CreatedAt = DateTime.UtcNow.AddHours(-18)
+                    CreatedAt = DateTime.UtcNow.AddHours(-12)
                 },
                 new()
                 {
@@ -83,40 +162,7 @@ public static class DbInitializer
                     Category = "Roleplay",
                     ForgivenCount = 218,
                     HellCount = 12,
-                    CreatedAt = DateTime.UtcNow.AddHours(-13)
-                },
-                new()
-                {
-                    ConfessionText = "Přítelkyni jsem nikdy neřekl, jak moc mě dokáže rozpálit, když mi uprostřed úplně normální rodinné večeře pošeptá do ucha jednu jedinou nevhodnou větu.",
-                    PersonaName = "Mefisto",
-                    SinIndex = 81,
-                    Archetype = "Sběratel zakázaných jisker",
-                    Category = "Fantazie",
-                    ForgivenCount = 189,
-                    HellCount = 27,
-                    CreatedAt = DateTime.UtcNow.AddHours(-9)
-                },
-                new()
-                {
-                    ConfessionText = "Celý život jsem měla pocit, že říct partnerovi nahlas, co přesně se mi líbí, je trapné nebo sobecké. Poprvé jsem to zkusila napsat sem a ulevilo se mi víc, než jsem čekala.",
-                    PersonaName = "Sestra Klára",
-                    SinIndex = 58,
-                    Archetype = "Smyslný objevitel bez studu",
-                    Category = "Otevřenost",
-                    ForgivenCount = 310,
-                    HellCount = 6,
-                    CreatedAt = DateTime.UtcNow.AddHours(-6)
-                },
-                new()
-                {
-                    ConfessionText = "V práci máme kolegu s neskutečně hlubokým hlasem. Nikdy bych partnera nepodvedla, ale když ten kolega čte prezentaci, moje fantazie si žije úplně vlastním životem.",
-                    PersonaName = "Mefisto",
-                    SinIndex = 79,
-                    Archetype = "Nevinný anděl s temnou fantazií",
-                    Category = "Tabu",
-                    ForgivenCount = 164,
-                    HellCount = 53,
-                    CreatedAt = DateTime.UtcNow.AddHours(-3)
+                    CreatedAt = DateTime.UtcNow.AddHours(-8)
                 },
                 new()
                 {
@@ -127,49 +173,7 @@ public static class DbInitializer
                     Category = "Párová jiskra",
                     ForgivenCount = 251,
                     HellCount = 8,
-                    CreatedAt = DateTime.UtcNow.AddHours(-1)
-                }
-            ]);
-            await db.SaveChangesAsync();
-        }
-
-        if (!await db.DailyQuestions.AnyAsync())
-        {
-            logger.LogInformation("Seeding Daily Sin Questions into MSSQL...");
-            db.DailyQuestions.AddRange(
-            [
-                new()
-                {
-                    QuestionKey = "spark_trigger",
-                    QuestionText = "Co v tobě zažehne jiskru rychleji: nečekaná pikantní zpráva ve dvě odpoledne, nebo naprostá tma a zakryté oči?",
-                    OptionA = "Pikantní zpráva uprostřed dne",
-                    OptionB = "Tma, ticho a zakryté oči",
-                    VotesA = 134,
-                    VotesB = 98,
-                    ConfessorCommentA = "Tvoje touha začíná v hlavě. Stačí jediná dobře mířená věta v 14:15 a večer už nemusí nikdo nic vysvětlovat.",
-                    ConfessorCommentB = "Když zmizí zrak, každý dotek pálí dvojnásob. Hledáš naprosté odevzdání přítomnému okamžiku."
-                },
-                new()
-                {
-                    QuestionKey = "control_or_surrender",
-                    QuestionText = "Kdybys dnes večer mohl/a na hodinu zahodit veškerý stud: raději bys udával/a každé pravidlo, nebo všechno nechal/a na partnerovi?",
-                    OptionA = "Udávat každé pravidlo a tempo",
-                    OptionB = "Pustit kontrolu a nechat se vést",
-                    VotesA = 88,
-                    VotesB = 146,
-                    ConfessorCommentA = "Tichý stratég. Vzrušuje tě reakce druhého ve chvíli, kdy přesně víš, jaký krok přijde dál.",
-                    ConfessorCommentB = "Přes den toho řídíš až moc. Tvé tělo touží po vzácném luxusu — chvíli o ničem nerozhodovat."
-                },
-                new()
-                {
-                    QuestionKey = "stranger_or_deep",
-                    QuestionText = "Co tě láká víc na dnešní noc: zahrát si na cizince v hotelovém baru, nebo si pošeptat jednu věc, kterou jste si ještě nikdy neřekli?",
-                    OptionA = "Hra na cizince a špetka tajemství",
-                    OptionB = "Odvážná upřímnost bez masek",
-                    VotesA = 112,
-                    VotesB = 129,
-                    ConfessorCommentA = "Novost je nejsilnější koření. Jakmile shodíš všední jméno, probudí se verze tebe, která se nebojí.",
-                    ConfessorCommentB = "Nejsilnější afrodiziakum není převlek, ale pohled do očí ve chvíli, kdy padne poslední tabu."
+                    CreatedAt = DateTime.UtcNow.AddHours(-2)
                 }
             ]);
             await db.SaveChangesAsync();
