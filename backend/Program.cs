@@ -68,9 +68,6 @@ api.MapGet("/personas", () =>
             ? p.PublicInfo
             : p.PublicInfo with { OdpustkyCost = 0, IsPremium = false })));
 
-// Couple Blind Desire Cards catalog
-api.MapGet("/couple/cards", () => Results.Ok(CoupleCardCatalog.All));
-
 // Desire Atlas Profile (built strictly from Couple Nights & Group Pool Rendezvous)
 api.MapGet("/profile/{clientId}", async (string clientId, ZpovedniceDbContext db) =>
 {
@@ -84,7 +81,7 @@ api.MapGroupPoolEndpoints();
 // ─── COUPLE MODE 2.0 ──────────────────────────────────────────────────────────
 api.MapPost("/couple/rooms", async (CreateCoupleRoomRequest req, ZpovedniceDbContext db) =>
 {
-    var normalizedMode = req.Mode is "confession" or "honesty" ? req.Mode : "deck";
+    var normalizedMode = req.Mode == "honesty" ? "honesty" : "confession";
     var room = new CoupleRoomEntity
     {
         RoomCode = GenerateRoomCode(),
@@ -126,62 +123,39 @@ api.MapPost("/couple/rooms/{roomCode}/submit", async (
     if (role is not ("A" or "B"))
         return Results.BadRequest(new { error = "Role musí být 'A' nebo 'B'." });
 
-    if (room.Mode == "deck")
-    {
-        if (req.CardVotes is null || req.CardVotes.Count < 4)
-            return Results.BadRequest(new { error = "Ohodnoť alespoň 4 tajné karty, aby Zpovědník našel shody." });
+    if (string.IsNullOrWhiteSpace(req.ConfessionText) || req.ConfessionText.Trim().Length < 8)
+        return Results.BadRequest(new { error = "Napiš alespoň krátkou větu (min. 8 znaků)." });
 
-        var cardsJson = JsonSerializer.Serialize(req.CardVotes);
-        if (role == "A") { room.PartnerACardsJson = cardsJson; room.PartnerASubmitted = true; }
-        else { room.PartnerBCardsJson = cardsJson; room.PartnerBSubmitted = true; }
+    var safetyCheck = safety.Evaluate(req.ConfessionText);
+    if (safetyCheck.IsBlocked)
+        return Results.BadRequest(new { error = safetyCheck.CrisisHelp!.Message, crisisHelp = safetyCheck.CrisisHelp });
+
+    var boundariesText = req.Boundaries is { Count: > 0 } ? string.Join(", ", req.Boundaries) : null;
+    if (role == "A")
+    {
+        room.PartnerAConfession = req.ConfessionText.Trim();
+        room.PartnerABoundaries = boundariesText;
+        room.PartnerASubmitted = true;
     }
     else
     {
-        if (string.IsNullOrWhiteSpace(req.ConfessionText) || req.ConfessionText.Trim().Length < 8)
-            return Results.BadRequest(new { error = "Napiš alespoň krátkou větu (min. 8 znaků)." });
-
-        var safetyCheck = safety.Evaluate(req.ConfessionText);
-        if (safetyCheck.IsBlocked)
-            return Results.BadRequest(new { error = safetyCheck.CrisisHelp!.Message, crisisHelp = safetyCheck.CrisisHelp });
-
-        var boundariesText = req.Boundaries is { Count: > 0 } ? string.Join(", ", req.Boundaries) : null;
-        if (role == "A")
-        {
-            room.PartnerAConfession = req.ConfessionText.Trim();
-            room.PartnerABoundaries = boundariesText;
-            room.PartnerASubmitted = true;
-        }
-        else
-        {
-            room.PartnerBConfession = req.ConfessionText.Trim();
-            room.PartnerBBoundaries = boundariesText;
-            room.PartnerBSubmitted = true;
-        }
+        room.PartnerBConfession = req.ConfessionText.Trim();
+        room.PartnerBBoundaries = boundariesText;
+        room.PartnerBSubmitted = true;
     }
 
     if (room.PartnerASubmitted && room.PartnerBSubmitted && string.IsNullOrWhiteSpace(room.ScenarioJson))
     {
         var persona = PersonaCatalog.GetById(room.PersonaId);
-        CoupleScenarioDto scenario;
-
-        if (room.Mode == "deck")
-        {
-            var votesA = JsonSerializer.Deserialize<Dictionary<string, string>>(room.PartnerACardsJson ?? "{}") ?? [];
-            var votesB = JsonSerializer.Deserialize<Dictionary<string, string>>(room.PartnerBCardsJson ?? "{}") ?? [];
-            scenario = await ai.GenerateCoupleDeckScenarioAsync(persona, votesA, votesB, room.Intensity, ct);
-        }
-        else
-        {
-            scenario = await ai.GenerateCoupleScenarioAsync(
-                persona,
-                room.Mode,
-                room.PartnerAConfession!,
-                room.PartnerABoundaries,
-                room.PartnerBConfession!,
-                room.PartnerBBoundaries,
-                room.Intensity,
-                ct);
-        }
+        var scenario = await ai.GenerateCoupleScenarioAsync(
+            persona,
+            room.Mode,
+            room.PartnerAConfession!,
+            room.PartnerABoundaries,
+            room.PartnerBConfession!,
+            room.PartnerBBoundaries,
+            room.Intensity,
+            ct);
 
         room.ScenarioJson = JsonSerializer.Serialize(scenario);
         room.PartnerAConfession = null;

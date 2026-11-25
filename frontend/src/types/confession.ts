@@ -31,16 +31,6 @@ export interface DesireProfile {
   lastPenanceTitle?: string | null;
 }
 
-export interface DesireCard {
-  id: string;
-  category: string;
-  title: string;
-  prompt: string;
-  spiceLevel: number;
-  complementaryCardId?: string | null;
-  polarityLabel?: string | null;
-}
-
 export interface MatchedDesire {
   title: string;
   kind: 'exact' | 'polarity';
@@ -73,7 +63,7 @@ export interface CoupleScenario {
   usedLiveAi: boolean;
 }
 
-export type CoupleModeType = 'deck' | 'confession' | 'honesty';
+export type CoupleModeType = 'confession' | 'honesty';
 
 export interface CoupleRoomStatus {
   roomCode: string;

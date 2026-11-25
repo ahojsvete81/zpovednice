@@ -148,7 +148,7 @@ public static class DesireProfileService
         {
             return (
                 "Tvůj Atlas touhy se teprve probouzí. Po prvním večeru v Tajném Kruhu nebo Párové zpovědnici se začne kreslit tvá skutečná pečeť.",
-                "Zatím držíš masku pevně na obličeji. Zkus Tajný Kruh na párty nebo Párové Tajné karty — první jiskra přeskočí během dvou minut."
+                "Zatím držíš masku pevně na obličeji. Zkus Tajný Kruh na párty nebo Párovou zpovědnici — první jiskra přeskočí během dvou minut."
             );
         }
 

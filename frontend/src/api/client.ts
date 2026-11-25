@@ -1,7 +1,6 @@
 import type {
   CoupleModeType,
   CoupleRoomStatus,
-  DesireCard,
   DesireProfile,
   GenderOption,
   GroupPoolState,
@@ -61,7 +60,6 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 export const api = {
   getHealth: () => request<HealthStatus>('/api/health'),
   getPersonas: () => request<Persona[]>('/api/personas'),
-  getCoupleCards: () => request<DesireCard[]>('/api/couple/cards'),
   getProfile: (clientId: string) =>
     request<DesireProfile>(`/api/profile/${encodeURIComponent(clientId)}`),
 
@@ -217,9 +215,8 @@ export const api = {
     payload: {
       clientId: string;
       partnerRole: 'A' | 'B';
-      confessionText?: string;
+      confessionText: string;
       boundaries?: string[];
-      cardVotes?: Record<string, string>;
     }
   ) =>
     request<CoupleRoomStatus>(`/api/couple/rooms/${encodeURIComponent(roomCode)}/submit`, {

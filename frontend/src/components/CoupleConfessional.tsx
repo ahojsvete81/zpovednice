@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
+import { motion } from 'framer-motion';
 import {
   CheckCircle2,
   Copy,
   Flame,
-  Heart,
   HeartHandshake,
   Lock,
   MessageCircle,
@@ -12,15 +11,12 @@ import {
   RefreshCw,
   Share2,
   Sparkles,
-  ThumbsDown,
   Users,
-  Wand2,
 } from 'lucide-react';
 import { api } from '../api/client';
 import type {
   CoupleModeType,
   CoupleRoomStatus,
-  DesireCard,
   IntensityLevel,
   Persona,
 } from '../types/confession';
@@ -52,22 +48,16 @@ const COUPLE_MODES: {
   desc: string;
 }[] = [
   {
-    id: 'deck',
-    badge: 'Nejoblíbenější • 60 s',
-    title: 'Tajné karty (Blind Deck)',
-    desc: 'Oba projedete 12 smyslných karet. Ukážou se jen společné shody a magnetické polarity.',
+    id: 'confession',
+    badge: 'Vlastní slova • Doporučeno',
+    title: 'Tajná zpověď slovem',
+    desc: 'Každý zašeptá vlastní tajnou fantazii a hranice. Jednostranná tajemství zmizí a AI Zpovědník ušije společný večer.',
   },
   {
     id: 'honesty',
     badge: 'Hluboké sblížení',
     title: 'Odvážná upřímnost',
-    desc: 'Když v intimitě něco drhne. Zpovědník přeloží tichá přání do jazyka touhy bez obviňování.',
-  },
-  {
-    id: 'confession',
-    badge: 'Vlastní slova',
-    title: 'Tajná zpověď slovem',
-    desc: 'Každý zašeptá vlastní tajnou fantazii a hranice -> AI ušije společný večer.',
+    desc: 'Když v intimitě něco drhne nebo přišla rutina. Zpovědník přeloží tichá přání obou do jazyka touhy bez obviňování.',
   },
 ];
 
@@ -79,22 +69,16 @@ export function CoupleConfessional({
   onProfileRefresh,
   onNotify,
 }: CoupleConfessionalProps) {
-  const [mode, setMode] = useState<CoupleModeType>('deck');
+  const [mode, setMode] = useState<CoupleModeType>('confession');
   const [personaId, setPersonaId] = useState('dominik');
   const [intensity, setIntensity] = useState<IntensityLevel>('spicy');
   const [showJoinInput, setShowJoinInput] = useState(false);
   const [joinCodeInput, setJoinCodeInput] = useState('');
 
-  const [cards, setCards] = useState<DesireCard[]>([]);
   const [room, setRoom] = useState<CoupleRoomStatus | null>(null);
   const [activePartner, setActivePartner] = useState<'A' | 'B'>(initialPartnerRole ?? 'A');
   const [joinedViaLink, setJoinedViaLink] = useState(Boolean(initialRoomCode));
 
-  // Deck state (1-card-at-a-time mobile thumb UX)
-  const [cardIndex, setCardIndex] = useState(0);
-  const [cardVotes, setCardVotes] = useState<Record<string, string>>({});
-
-  // Text confession / honesty state
   const [confessionText, setConfessionText] = useState('');
   const [selectedBoundaries, setSelectedBoundaries] = useState<string[]>(['Pomalé tempo & masáž']);
 
@@ -102,11 +86,6 @@ export function CoupleConfessional({
   const [error, setError] = useState<string | null>(null);
   const [copiedLink, setCopiedLink] = useState(false);
   const [showLiveEvening, setShowLiveEvening] = useState(false);
-
-  // Load Blind Desire Cards catalog
-  useEffect(() => {
-    api.getCoupleCards().then(setCards).catch(() => {});
-  }, []);
 
   // Auto-join room from WhatsApp deep link (?room=SIN-XXXX&partner=B)
   useEffect(() => {
@@ -133,7 +112,6 @@ export function CoupleConfessional({
       .finally(() => setLoading(false));
   }, [initialRoomCode, initialPartnerRole]);
 
-  // Auto-poll every 4s while waiting for the other partner to finish via WhatsApp link
   const isWaitingForOtherPartner = Boolean(
     room &&
       !room.isReady &&
@@ -141,6 +119,7 @@ export function CoupleConfessional({
         (activePartner === 'B' && room.partnerBSubmitted && !room.partnerASubmitted))
   );
 
+  // Auto-poll every 4s while waiting for the other partner
   useEffect(() => {
     if (!room || !isWaitingForOtherPartner) return;
     const interval = setInterval(async () => {
@@ -166,7 +145,7 @@ export function CoupleConfessional({
 
   const whatsappInviteHref = useMemo(() => {
     if (!inviteUrl) return '#';
-    const text = `🔥 Mám pro nás na dnešek hříšnou hru v Párové zpovědnici. Už jsem uzamkl/a svou část — teď jsi na řadě ty! Jednostranná tajemství nikdo neuvidí, odhalí se jen naše společné shody:\n${inviteUrl}`;
+    const text = `🔥 Mám pro nás na dnešek tajnou hru v Párové zpovědnici. Už jsem uzamkl/a svou zpověď — teď jsi na řadě ty! Jednostranná tajemství nikdo neuvidí, AI Zpovědník z našich slov ušije společný večer:\n${inviteUrl}`;
     return `https://wa.me/?text=${encodeURIComponent(text)}`;
   }, [inviteUrl]);
 
@@ -174,7 +153,7 @@ export function CoupleConfessional({
     if (!inviteUrl) return;
     const shareData = {
       title: 'ODPUSTEK — Párová zpovědnice',
-      text: '🔥 Už jsem uzamkl/a svou část v Párové zpovědnici — teď jsi na řadě ty! Ukážou se jen naše shody.',
+      text: '🔥 Už jsem uzamkl/a svou část v Párové zpovědnici — teď jsi na řadě ty!',
       url: inviteUrl,
     };
     if (navigator.share) {
@@ -207,8 +186,6 @@ export function CoupleConfessional({
       setRoom(created);
       setActivePartner('A');
       setJoinedViaLink(false);
-      setCardIndex(0);
-      setCardVotes({});
       setConfessionText('');
       window.history.replaceState({}, '', `/?room=${created.roomCode}&partner=A`);
     } catch (err) {
@@ -227,8 +204,6 @@ export function CoupleConfessional({
       const existing = await api.getCoupleRoom(joinCodeInput.trim());
       setRoom(existing);
       setActivePartner(existing.partnerASubmitted && !existing.partnerBSubmitted ? 'B' : 'A');
-      setCardIndex(0);
-      setCardVotes({});
       setConfessionText('');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Kabinka s tímto kódem nebyla nalezena.');
@@ -237,23 +212,10 @@ export function CoupleConfessional({
     }
   };
 
-  const handleVoteCard = (cardId: string, vote: 'yes' | 'maybe' | 'no') => {
-    setCardVotes((prev) => ({ ...prev, [cardId]: vote }));
-    if (cardIndex < cards.length - 1) {
-      setCardIndex((i) => i + 1);
-    }
-  };
-
-  const handleSubmitPartner = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
+  const handleSubmitPartner = async (e: React.FormEvent) => {
+    e.preventDefault();
     if (!room) return;
-
-    if (room.mode === 'deck') {
-      if (Object.keys(cardVotes).length < 4) {
-        setError('Ohodnoť prosím alespoň 4 karty.');
-        return;
-      }
-    } else if (confessionText.trim().length < 8) {
+    if (confessionText.trim().length < 8) {
       setError('Napiš alespoň krátkou větu (min. 8 znaků).');
       return;
     }
@@ -264,17 +226,14 @@ export function CoupleConfessional({
       const updated = await api.submitCoupleConfession(room.roomCode, {
         clientId,
         partnerRole: activePartner,
-        confessionText: room.mode === 'deck' ? undefined : confessionText.trim(),
-        boundaries: room.mode === 'deck' ? undefined : selectedBoundaries,
-        cardVotes: room.mode === 'deck' ? cardVotes : undefined,
+        confessionText: confessionText.trim(),
+        boundaries: room.mode === 'confession' ? selectedBoundaries : undefined,
       });
       setRoom(updated);
       setConfessionText('');
-      setCardVotes({});
-      setCardIndex(0);
 
       if (updated.isReady) {
-        onNotify('🔥 Obě tajemství se propojila! Večer rozhřešení je odemčen.');
+        onNotify('🔥 Obě zpovědi se propojily! Večer rozhřešení je odemčen.');
         await onProfileRefresh();
       } else {
         onNotify('Tvé tajemství je uzamčeno! Pošli teď odkaz partnerovi na WhatsApp.');
@@ -294,8 +253,6 @@ export function CoupleConfessional({
       await api.burnCoupleRoom(room.roomCode);
       setShowLiveEvening(false);
       setRoom(null);
-      setCardVotes({});
-      setCardIndex(0);
       setConfessionText('');
       window.history.replaceState({}, '', '/');
       onNotify('Párová kabinka shořela v plamenech a byla nenávratně smazána.');
@@ -310,23 +267,18 @@ export function CoupleConfessional({
     );
   };
 
-  const ratedCount = Object.keys(cardVotes).length;
-  const currentCard = cards[cardIndex];
-  const deckComplete = cards.length > 0 && ratedCount >= cards.length;
-
   return (
     <div className="space-y-5">
-      {/* Header */}
       <div className="space-y-1">
         <p className="text-[11px] uppercase tracking-[0.24em] text-[#d4af37]">
-          Párová zpovědnice • Mobil-first • Otevřený pilot zdarma
+          Párová zpovědnice • Mobil-first • Živé AI
         </p>
         <h1 className="font-serif-display text-3xl sm:text-4xl font-semibold text-[#f8ece4] leading-tight">
           Odhalte společné touhy beze studu
         </h1>
         <p className="text-xs sm:text-sm text-[#c4aeb7] max-w-2xl leading-relaxed">
           Začni teď na mobilu a na <strong>jedno kliknutí pošli odkaz partnerovi na WhatsApp</strong>.
-          Jednostranné fantazie nikdo neuvidí — Zpovědník ukáže jen vaše shody a polaritu.
+          Jednostranná tajemství nikdo neuvidí — AI Zpovědník z obou zpovědí vytvoří společný večer.
         </p>
       </div>
 
@@ -336,11 +288,10 @@ export function CoupleConfessional({
         </div>
       )}
 
-      {/* ─── STATE 1: NO ROOM YET (MOBILE-FIRST START SCREEN) ─── */}
+      {/* ─── STATE 1: START SCREEN ─── */}
       {!room && (
         <div className="space-y-4">
-          {/* 3 Mode Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {COUPLE_MODES.map((m) => {
               const active = mode === m.id;
               return (
@@ -370,7 +321,6 @@ export function CoupleConfessional({
             })}
           </div>
 
-          {/* Quick Confessor & Spice compact strip + Big Start CTA */}
           <div className="velvet-card gold-shimmer-border rounded-3xl p-5 sm:p-6 space-y-5">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
@@ -470,7 +420,7 @@ export function CoupleConfessional({
         </div>
       )}
 
-      {/* ─── STATE 2: WAITING FOR PARTNER -> 1-CLICK WHATSAPP INVITE SCREEN ─── */}
+      {/* ─── STATE 2: WAITING FOR PARTNER -> 1-CLICK WHATSAPP INVITE ─── */}
       {room && !room.isReady && isWaitingForOtherPartner && (
         <motion.div
           initial={{ opacity: 0, scale: 0.96 }}
@@ -490,11 +440,10 @@ export function CoupleConfessional({
             </h2>
             <p className="text-sm text-[#d4bfc8] max-w-md mx-auto leading-relaxed">
               Teď pošli tento soukromý odkaz partnerovi. Otevře se mu rovnou jeho část na mobilu —
-              tvoje odpovědi neuvidí, odhalí se jen vaše shody.
+              tvoje slova neuvidí, AI Zpovědník z nich ušije společný večer.
             </p>
           </div>
 
-          {/* 1-CLICK WHATSAPP PRIMARY CTA */}
           <div className="max-w-md mx-auto space-y-3">
             <a
               href={whatsappInviteHref}
@@ -526,7 +475,6 @@ export function CoupleConfessional({
             </div>
           </div>
 
-          {/* Live Auto-Polling Indicator */}
           <div className="rounded-2xl border border-[#d4af37]/20 bg-black/35 px-4 py-3.5 max-w-md mx-auto flex items-center justify-center gap-2.5 text-xs text-[#cbb5be]">
             <RefreshCw className="h-3.5 w-3.5 text-[#d4af37] animate-spin" />
             <span>
@@ -534,15 +482,10 @@ export function CoupleConfessional({
             </span>
           </div>
 
-          {/* Fallback: Same device couch handoff */}
           <div className="pt-2 border-t border-white/10 flex flex-col sm:flex-row items-center justify-center gap-4 text-xs">
             <button
               type="button"
-              onClick={() => {
-                setActivePartner(inviteRole);
-                setCardIndex(0);
-                setCardVotes({});
-              }}
+              onClick={() => setActivePartner(inviteRole)}
               className="cursor-pointer inline-flex items-center gap-1.5 text-[#f2d57e] underline underline-offset-4 hover:text-white"
             >
               <Users className="h-3.5 w-3.5" />
@@ -562,7 +505,6 @@ export function CoupleConfessional({
       {/* ─── STATE 3: ACTIVE INPUT FOR PARTNER A OR B ─── */}
       {room && !room.isReady && !isWaitingForOtherPartner && (
         <div className="velvet-card lattice-bg gold-shimmer-border rounded-3xl p-5 sm:p-7 space-y-5">
-          {/* Partner Context Banner */}
           <div className="flex items-center justify-between gap-2 border-b border-[#d4af37]/15 pb-3.5">
             <div>
               <p className="text-[11px] uppercase tracking-[0.22em] text-[#d4af37]">
@@ -570,8 +512,8 @@ export function CoupleConfessional({
               </p>
               <p className="text-xs text-[#cbb5be] mt-0.5">
                 {joinedViaLink || (activePartner === 'B' && room.partnerASubmitted)
-                  ? 'Partner už svou část uzamkl! Teď jsi na řadě ty — nikdo neuvidí tvé neshody.'
-                  : 'Vyplň svou tajnou část. Po uzamčení dostaneš 1-klik pozvánku na WhatsApp.'}
+                  ? 'Partner už svou část uzamkl! Teď jsi na řadě ty — nikdo neuvidí tvá slova napřímo.'
+                  : 'Zašeptej svou tajnou část. Po uzamčení dostaneš 1-klik pozvánku na WhatsApp.'}
               </p>
             </div>
             <button
@@ -583,220 +525,76 @@ export function CoupleConfessional({
             </button>
           </div>
 
-          {/* MODE A: MOBILE-FIRST BLIND DESIRE DECK (1 CARD AT A TIME) */}
-          {room.mode === 'deck' && cards.length > 0 && (
-            <div className="space-y-5">
-              {/* Progress Bar */}
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between text-xs text-[#c6b0b9]">
-                  <span>
-                    Karta <strong className="text-[#f2d57e]">{Math.min(cardIndex + 1, cards.length)}</strong> z{' '}
-                    {cards.length}
-                  </span>
-                  <span>Ohodnoceno: {ratedCount}</span>
-                </div>
-                <div className="h-1.5 w-full rounded-full bg-white/10 overflow-hidden">
-                  <div
-                    className="h-full rounded-full bg-gradient-to-r from-[#8f1833] to-[#f2d57e] transition-all duration-300"
-                    style={{ width: `${Math.round((ratedCount / cards.length) * 100)}%` }}
-                  />
-                </div>
-              </div>
-
-              {!deckComplete && currentCard ? (
-                <div className="space-y-4">
-                  <AnimatePresence mode="wait">
-                    <motion.div
-                      key={currentCard.id}
-                      initial={{ opacity: 0, x: 24, scale: 0.97 }}
-                      animate={{ opacity: 1, x: 0, scale: 1 }}
-                      exit={{ opacity: 0, x: -24, scale: 0.97 }}
-                      transition={{ duration: 0.22 }}
-                      className="rounded-3xl border border-[#d4af37]/45 bg-gradient-to-b from-[#2f0f1c] via-[#17090f] to-[#12070c] p-6 sm:p-8 min-h-[220px] flex flex-col justify-between shadow-2xl"
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="rounded-full bg-[#d4af37]/15 border border-[#d4af37]/35 px-3 py-1 text-[11px] font-medium text-[#f2d57e]">
-                          {currentCard.category}
-                        </span>
-                        <span className="text-xs text-[#f2d57e]" title="Intenzita">
-                          {'🔥'.repeat(currentCard.spiceLevel)}
-                        </span>
-                      </div>
-
-                      <div className="py-5 text-center space-y-2.5">
-                        <h3 className="font-serif-display text-3xl sm:text-4xl font-semibold text-[#fff3e4]">
-                          {currentCard.title}
-                        </h3>
-                        <p className="text-sm sm:text-base text-[#ebd9e1] leading-relaxed max-w-md mx-auto">
-                          „{currentCard.prompt}“
-                        </p>
-                      </div>
-
-                      {currentCard.complementaryCardId && (
-                        <p className="text-[11px] text-center text-[#d4af37]/85 flex items-center justify-center gap-1">
-                          <Wand2 className="h-3 w-3" />
-                          Páruje se i s opačnou polaritou partnera!
-                        </p>
-                      )}
-                    </motion.div>
-                  </AnimatePresence>
-
-                  {/* 3 Big Mobile Thumb Buttons */}
-                  <div className="grid grid-cols-3 gap-2.5">
-                    <button
-                      type="button"
-                      onClick={() => handleVoteCard(currentCard.id, 'no')}
-                      className="cursor-pointer min-h-[64px] flex flex-col items-center justify-center gap-1 rounded-2xl border border-white/15 bg-[#160a0f] px-2 py-3 text-xs font-medium text-[#bda6b0] hover:bg-white/10 active:scale-95 transition"
-                    >
-                      <ThumbsDown className="h-4 w-4 text-[#9a828c]" />
-                      <span>Raději ne</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => handleVoteCard(currentCard.id, 'maybe')}
-                      className="cursor-pointer min-h-[64px] flex flex-col items-center justify-center gap-1 rounded-2xl border border-[#d4af37]/50 bg-[#2d1a10] px-2 py-3 text-xs font-semibold text-[#f5da8b] hover:brightness-110 active:scale-95 transition"
-                    >
-                      <Sparkles className="h-4 w-4 text-[#f2d57e]" />
-                      <span>Svedl bys mě</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => handleVoteCard(currentCard.id, 'yes')}
-                      className="cursor-pointer min-h-[64px] flex flex-col items-center justify-center gap-1 rounded-2xl border border-[#f2d57e]/60 bg-gradient-to-b from-[#9e1c38] to-[#6f1125] px-2 py-3 text-xs font-bold text-white shadow-lg shadow-[#9e1c38]/35 hover:brightness-110 active:scale-95 transition"
-                    >
-                      <Heart className="h-4 w-4 fill-current text-[#f8d78c]" />
-                      <span>Chci hned</span>
-                    </button>
-                  </div>
-
-                  {/* Early lock-in option after >= 6 cards */}
-                  <div className="flex items-center justify-between pt-1 text-xs">
-                    <button
-                      type="button"
-                      disabled={cardIndex === 0}
-                      onClick={() => setCardIndex((i) => Math.max(0, i - 1))}
-                      className="cursor-pointer text-[#a9929c] hover:text-white disabled:opacity-30"
-                    >
-                      ← Předchozí karta
-                    </button>
-                    {ratedCount >= 6 && (
-                      <button
-                        type="button"
-                        disabled={loading}
-                        onClick={() => handleSubmitPartner()}
-                        className="cursor-pointer text-[#f2d57e] font-semibold underline underline-offset-4"
-                      >
-                        Stačí mi {ratedCount} karet — Uzamknout teď →
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ) : (
-                /* All 12 Cards Rated -> Lock-in CTA */
-                <div className="text-center py-6 space-y-4">
-                  <Sparkles className="h-10 w-10 text-[#f2d57e] mx-auto" />
-                  <h3 className="font-serif-display text-3xl text-[#fff3e2]">
-                    Všech {cards.length} karet ohodnoceno!
-                  </h3>
-                  <p className="text-sm text-[#cbb5be] max-w-md mx-auto">
-                    {activePartner === 'B' && room.partnerASubmitted
-                      ? 'Stačí kliknout níže a Zpovědník okamžitě odhalí vaše shody a dnešní Večer rozhřešení.'
-                      : 'Uzamkni své karty a jedním kliknutím pošli partnerovi soukromý odkaz na WhatsApp.'}
-                  </p>
-                  <button
-                    type="button"
-                    disabled={loading}
-                    onClick={() => handleSubmitPartner()}
-                    className="w-full sm:w-auto min-h-[52px] cursor-pointer inline-flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-[#7d152d] via-[#a91e3e] to-[#7d152d] px-8 py-3.5 text-sm font-semibold uppercase tracking-[0.16em] text-white border border-[#f2d57e]/50 shadow-xl"
-                  >
-                    <Lock className="h-4 w-4 text-[#f2d57e]" />
-                    {loading
-                      ? 'Propojuji tajemství…'
-                      : room.partnerASubmitted && activePartner === 'B'
-                        ? 'Odhalit naše shody & Scénář'
-                        : 'Uzamknout & Získat WhatsApp odkaz'}
-                  </button>
-                </div>
-              )}
+          <form onSubmit={handleSubmitPartner} className="space-y-4">
+            <div>
+              <label className="block text-xs uppercase tracking-wider text-[#f2d57e] mb-2">
+                {room.mode === 'honesty'
+                  ? 'Co ti v naší intimitě chybí a bojíš se to říct, abys druhého nezranil/a?'
+                  : 'Tvé tajné přání nebo fantazie na dnešní noc:'}
+              </label>
+              <textarea
+                value={confessionText}
+                onChange={(e) => setConfessionText(e.target.value)}
+                rows={4}
+                placeholder={
+                  room.mode === 'honesty'
+                    ? 'Např. „Chybí mi pocit, že si na sebe uděláme čas bez spěchu a telefonů, a moc bych si přál/a víc iniciativy…“'
+                    : 'Např. „Láká mě představa jemné dominance se šátkem nebo hry na cizince při sklence vína…“'
+                }
+                className="w-full rounded-2xl border border-[#d4af37]/25 bg-[#0b0508]/90 p-4 text-sm sm:text-base text-[#f7ece6] placeholder-[#78616b] focus:border-[#d4af37]/70 focus:outline-none"
+              />
             </div>
-          )}
 
-          {/* MODE B & C: FREE CONFESSION OR BRAVE HONESTY */}
-          {room.mode !== 'deck' && (
-            <form onSubmit={handleSubmitPartner} className="space-y-4">
+            {room.mode === 'confession' && (
               <div>
-                <label className="block text-xs uppercase tracking-wider text-[#f2d57e] mb-2">
-                  {room.mode === 'honesty'
-                    ? 'Co ti v naší intimitě chybí a bojíš se to říct, abys druhého nezranil/a?'
-                    : 'Tvé tajné přání nebo fantazie na dnešní noc:'}
-                </label>
-                <textarea
-                  value={confessionText}
-                  onChange={(e) => setConfessionText(e.target.value)}
-                  rows={4}
-                  placeholder={
-                    room.mode === 'honesty'
-                      ? 'Např. „Chybí mi pocit, že si na sebe uděláme čas bez spěchu a telefonů, a moc bych si přál/a víc iniciativy…“'
-                      : 'Např. „Láká mě představa jemné dominance se šátkem nebo hry na cizince při sklence vína…“'
-                  }
-                  className="w-full rounded-2xl border border-[#d4af37]/25 bg-[#0b0508]/90 p-4 text-sm sm:text-base text-[#f7ece6] placeholder-[#78616b] focus:border-[#d4af37]/70 focus:outline-none"
-                />
-              </div>
-
-              {room.mode === 'confession' && (
-                <div>
-                  <p className="text-xs uppercase tracking-wider text-[#bba5ae] mb-2">
-                    Hranice & preference:
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    {BOUNDARY_CHIPS.map((b) => {
-                      const active = selectedBoundaries.includes(b);
-                      return (
-                        <button
-                          key={b}
-                          type="button"
-                          onClick={() => toggleBoundary(b)}
-                          className={`cursor-pointer rounded-full px-3 py-1.5 text-xs border transition ${
-                            active
-                              ? 'bg-[#8f1833] border-[#f2d57e]/60 text-white'
-                              : 'bg-black/35 border-white/10 text-[#c1abb4]'
-                          }`}
-                        >
-                          {b}
-                        </button>
-                      );
-                    })}
-                  </div>
+                <p className="text-xs uppercase tracking-wider text-[#bba5ae] mb-2">
+                  Hranice & preference:
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {BOUNDARY_CHIPS.map((b) => {
+                    const active = selectedBoundaries.includes(b);
+                    return (
+                      <button
+                        key={b}
+                        type="button"
+                        onClick={() => toggleBoundary(b)}
+                        className={`cursor-pointer rounded-full px-3 py-1.5 text-xs border transition ${
+                          active
+                            ? 'bg-[#8f1833] border-[#f2d57e]/60 text-white'
+                            : 'bg-black/35 border-white/10 text-[#c1abb4]'
+                        }`}
+                      >
+                        {b}
+                      </button>
+                    );
+                  })}
                 </div>
-              )}
+              </div>
+            )}
 
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full min-h-[50px] cursor-pointer inline-flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-[#7d152d] via-[#a31d3c] to-[#7d152d] px-7 py-3.5 text-xs font-semibold uppercase tracking-[0.16em] text-white border border-[#f2d57e]/45"
-              >
-                <Lock className="h-4 w-4 text-[#f2d57e]" />
-                {loading
-                  ? 'Zamykám tajemství…'
-                  : room.partnerASubmitted && activePartner === 'B'
-                    ? 'Odhalit Večer rozhřešení'
-                    : 'Uzamknout & Poslat na WhatsApp'}
-              </button>
-            </form>
-          )}
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full min-h-[50px] cursor-pointer inline-flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-[#7d152d] via-[#a31d3c] to-[#7d152d] px-7 py-3.5 text-xs font-semibold uppercase tracking-[0.16em] text-white border border-[#f2d57e]/45"
+            >
+              <Lock className="h-4 w-4 text-[#f2d57e]" />
+              {loading
+                ? 'AI Zpovědník tvoří večer…'
+                : room.partnerASubmitted && activePartner === 'B'
+                  ? 'Odhalit Večer rozhřešení'
+                  : 'Uzamknout & Poslat na WhatsApp'}
+            </button>
+          </form>
         </div>
       )}
 
-      {/* ─── STATE 4: REVEALED EVENING SCENARIO + LIVE GUIDED LAUNCHER ─── */}
+      {/* ─── STATE 4: REVEALED EVENING SCENARIO ─── */}
       {room && room.isReady && room.scenario && (
         <motion.div
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           className="velvet-card gold-shimmer-border rounded-3xl p-5 sm:p-8 space-y-6"
         >
-          {/* Scenario Header */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#d4af37]/20 pb-5">
             <div>
               <p className="text-[11px] uppercase tracking-[0.25em] text-[#d4af37] mb-1">
@@ -818,7 +616,6 @@ export function CoupleConfessional({
             </div>
           </div>
 
-          {/* Primary CTA: Launch Live Guided Evening */}
           <button
             type="button"
             onClick={() => setShowLiveEvening(true)}
@@ -828,50 +625,22 @@ export function CoupleConfessional({
             Spustit Večer rozhřešení živě (Časovač & Hlas)
           </button>
 
-          {/* Confessor Intro */}
           <blockquote className="rounded-2xl border-l-2 border-[#d4af37] bg-[#13070c]/80 p-4 sm:p-5">
             <p className="font-serif-display text-xl italic text-[#f7eae2] leading-relaxed">
               „{room.scenario.confessorIntro}“
             </p>
           </blockquote>
 
-          {/* Matched Golden Desires & Polarity Matches */}
-          {room.scenario.matchedDesires && room.scenario.matchedDesires.length > 0 && (
-            <div className="space-y-3">
-              <h3 className="text-xs uppercase tracking-[0.22em] text-[#f2d57e] flex items-center gap-1.5">
-                <Sparkles className="h-3.5 w-3.5" />
-                Vaše zlaté shody & Magnetické polarity
-              </h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {room.scenario.matchedDesires.map((m, i) => (
-                  <div
-                    key={i}
-                    className={`rounded-2xl p-4 border ${
-                      m.kind === 'polarity'
-                        ? 'bg-gradient-to-br from-[#3c1124] to-[#24130b] border-[#f2d57e]/65 shadow-lg'
-                        : 'bg-[#1a0a11]/90 border-[#d4af37]/25'
-                    }`}
-                  >
-                    <span
-                      className={`inline-block rounded-full px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider mb-1.5 ${
-                        m.kind === 'polarity'
-                          ? 'bg-[#f2d57e] text-[#17080d]'
-                          : 'bg-[#d4af37]/20 text-[#f2d57e]'
-                      }`}
-                    >
-                      {m.matchStrength}
-                    </span>
-                    <h4 className="font-serif-display text-xl font-semibold text-[#fff3e4]">
-                      {m.title}
-                    </h4>
-                    <p className="text-xs text-[#d6c2ca] mt-1 leading-relaxed">{m.description}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+          <div className="rounded-2xl border border-[#d4af37]/25 bg-[#1c0b12]/80 p-4 sm:p-5">
+            <h3 className="text-xs uppercase tracking-[0.2em] text-[#f2d57e] mb-1.5 flex items-center gap-1.5">
+              <Sparkles className="h-3.5 w-3.5" />
+              Kde se vaše zpovědi potkaly
+            </h3>
+            <p className="text-sm text-[#e6d5dc] leading-relaxed">
+              {room.scenario.sharedSparkSummary}
+            </p>
+          </div>
 
-          {/* Daytime Spark Message + 1-click WhatsApp send */}
           {room.scenario.daytimeSparkMessage && (
             <div className="rounded-2xl border border-[#25D366]/35 bg-[#0c1d13]/70 p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
@@ -894,7 +663,6 @@ export function CoupleConfessional({
             </div>
           )}
 
-          {/* 3-Step Preview */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
             {room.scenario.steps.map((step) => (
               <div
@@ -917,7 +685,6 @@ export function CoupleConfessional({
             ))}
           </div>
 
-          {/* Burn Room */}
           <div className="flex justify-center pt-2">
             <button
               type="button"
