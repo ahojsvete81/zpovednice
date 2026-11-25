@@ -201,6 +201,7 @@ public class PoolMemberEntity
     public string ClientId { get; set; } = string.Empty;
     public string MaskName { get; set; } = string.Empty;
     public string MaskSymbol { get; set; } = "🎭";
+    public string? MaskStyleJson { get; set; }
     public string Gender { get; set; } = "X";   // "M" | "F" | "X"
     public string Seeking { get; set; } = "Any"; // "M" | "F" | "Any"
     public string Clue1 { get; set; } = string.Empty;

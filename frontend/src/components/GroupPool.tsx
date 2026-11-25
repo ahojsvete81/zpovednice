@@ -10,6 +10,7 @@ import {
   Lock,
   MapPin,
   MessageCircle,
+  Pencil,
   Plus,
   Radio,
   Send,
@@ -17,17 +18,21 @@ import {
   Sparkles,
   Users,
   Wind,
+  X,
 } from 'lucide-react';
 import { api } from '../api/client';
 import type {
   GenderOption,
   GroupPoolState,
   MaskChamber,
+  MaskStyle,
   PoolHeatMode,
   PoolPresets,
   SeekingOption,
 } from '../types/confession';
 import { ambientAudio } from '../utils/ambientAudio';
+import { MaskAvatar } from './MaskAvatar';
+import { MaskDesigner } from './MaskDesigner';
 
 interface GroupPoolProps {
   clientId: string;
@@ -76,6 +81,22 @@ export function GroupPool({
   const [gender, setGender] = useState<GenderOption>('M');
   const [seeking, setSeeking] = useState<SeekingOption>('F');
   const [clue1, setClue1] = useState('Mám dnes na sobě něco černého');
+
+  // Custom Mask Studio state (remembered in localStorage)
+  const [maskName, setMaskName] = useState(
+    () => localStorage.getItem('odpustek_mask_name') || 'Rudý Fénix'
+  );
+  const [maskSymbol, setMaskSymbol] = useState(
+    () => localStorage.getItem('odpustek_mask_symbol') || '🜂'
+  );
+  const [maskStyle, setMaskStyle] = useState<MaskStyle>(() => {
+    try {
+      const saved = localStorage.getItem('odpustek_mask_style');
+      if (saved) return JSON.parse(saved) as MaskStyle;
+    } catch {}
+    return { shape: 'venetian', color: '#8f1833', accent: '#f2d57e' };
+  });
+  const [showEditMaskModal, setShowEditMaskModal] = useState(false);
 
   // Active Pool state
   const [pool, setPool] = useState<GroupPoolState | null>(null);
@@ -157,11 +178,23 @@ export function GroupPool({
     e.preventDefault();
     setLoading(true);
     setError(null);
+    localStorage.setItem('odpustek_mask_name', maskName.trim() || 'Rudý Fénix');
+    localStorage.setItem('odpustek_mask_symbol', maskSymbol);
+    localStorage.setItem('odpustek_mask_style', JSON.stringify(maskStyle));
+
     try {
       let state: GroupPoolState;
       if (joinModeCode) {
-        state = await api.joinPool(joinModeCode, { clientId, gender, seeking, clue1 });
-        onNotify(`Maska nasazena: ${state.me?.maskSymbol} ${state.me?.maskName}!`);
+        state = await api.joinPool(joinModeCode, {
+          clientId,
+          gender,
+          seeking,
+          clue1,
+          maskName: maskName.trim() || undefined,
+          maskSymbol,
+          maskStyle,
+        });
+        onNotify(`Maska nasazena: ${state.me?.maskName}!`);
       } else {
         state = await api.createPool({
           clientId,
@@ -170,6 +203,9 @@ export function GroupPool({
           gender,
           seeking,
           clue1,
+          maskName: maskName.trim() || undefined,
+          maskSymbol,
+          maskStyle,
         });
         onNotify(`Tajný Kruh ${state.poolCode} otevřen! Pošli link do WhatsApp skupiny.`);
       }
@@ -177,6 +213,30 @@ export function GroupPool({
       window.history.replaceState({}, '', `/?pool=${state.poolCode}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Nepodařilo se vstoupit do Tajného Kruhu.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSaveMaskUpdate = async () => {
+    if (!pool) return;
+    setLoading(true);
+    setError(null);
+    localStorage.setItem('odpustek_mask_name', maskName.trim() || 'Rudý Fénix');
+    localStorage.setItem('odpustek_mask_symbol', maskSymbol);
+    localStorage.setItem('odpustek_mask_style', JSON.stringify(maskStyle));
+    try {
+      const fresh = await api.updateMask(pool.poolCode, {
+        clientId,
+        maskName: maskName.trim() || 'Rudý Fénix',
+        maskSymbol,
+        maskStyle,
+      });
+      setPool(fresh);
+      setShowEditMaskModal(false);
+      onNotify(`Tvá maska byla upravena na: ${fresh.me?.maskName}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Nepodařilo se uložit masku.');
     } finally {
       setLoading(false);
     }
@@ -437,6 +497,16 @@ export function GroupPool({
             </>
           )}
 
+          {/* Custom Mask Studio right inside Create/Join */}
+          <MaskDesigner
+            maskName={maskName}
+            maskSymbol={maskSymbol}
+            maskStyle={maskStyle}
+            onChangeName={setMaskName}
+            onChangeSymbol={setMaskSymbol}
+            onChangeStyle={setMaskStyle}
+          />
+
           {/* Silent compatibility filter */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
             <div>
@@ -596,15 +666,28 @@ export function GroupPool({
           </div>
 
           {pool.me && (
-            <div className="flex items-center gap-3 rounded-2xl border border-[#d4af37]/35 bg-[#190910] px-4 py-2.5">
-              <span className="text-2xl">{pool.me.maskSymbol}</span>
-              <div>
+            <div className="flex items-center gap-3 rounded-2xl border border-[#d4af37]/35 bg-[#190910] px-3.5 py-2.5">
+              <MaskAvatar style={pool.me.maskStyle} symbol={pool.me.maskSymbol} size="md" />
+              <div className="min-w-0">
                 <p className="text-[10px] uppercase tracking-widest text-[#bfa5af]">Tvá maska</p>
-                <p className="font-serif-display text-lg font-semibold text-[#f2d57e] leading-tight">
+                <p className="font-serif-display text-lg font-semibold text-[#f2d57e] leading-tight truncate">
                   {pool.me.maskName}
                 </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMaskName(pool.me!.maskName);
+                    setMaskSymbol(pool.me!.maskSymbol);
+                    if (pool.me!.maskStyle) setMaskStyle(pool.me!.maskStyle);
+                    setShowEditMaskModal(true);
+                  }}
+                  className="cursor-pointer inline-flex items-center gap-1 text-[10px] text-[#cbb5be] hover:text-[#f2d57e] mt-0.5"
+                >
+                  <Pencil className="h-2.5 w-2.5" />
+                  Upravit masku
+                </button>
               </div>
-              <div className="pl-3 ml-1 border-l border-white/10 text-center">
+              <div className="pl-3 ml-auto border-l border-white/10 text-center">
                 <span className="block text-[9px] uppercase tracking-wider text-[#b7a0aa]">
                   Sirky
                 </span>
@@ -812,8 +895,8 @@ export function GroupPool({
                 >
                   <div className="space-y-2.5">
                     <div className="flex items-center justify-between gap-2">
-                      <span className="inline-flex items-center gap-1.5 text-xs font-medium text-[#f2d57e]">
-                        <span>{spark.authorMaskSymbol}</span>
+                      <span className="inline-flex items-center gap-2 text-xs font-medium text-[#f2d57e]">
+                        <MaskAvatar style={spark.authorMaskStyle} symbol={spark.authorMaskSymbol} size="sm" />
                         <span>{spark.authorMaskName}</span>
                         {spark.isMine && (
                           <span className="rounded bg-[#d4af37]/20 px-1.5 py-0.5 text-[10px]">
@@ -858,9 +941,10 @@ export function GroupPool({
                               key={c.catchId}
                               className="rounded-xl border border-[#d4af37]/30 bg-[#1c0a12] p-3 space-y-2"
                             >
-                              <div className="flex items-center justify-between text-xs">
+                              <div className="flex items-center gap-2 text-xs">
+                                <MaskAvatar style={c.catcherMaskStyle} symbol={c.catcherMaskSymbol} size="sm" />
                                 <span className="font-semibold text-[#f2d57e]">
-                                  {c.catcherMaskSymbol} {c.catcherMaskName}
+                                  {c.catcherMaskName}
                                 </span>
                               </div>
                               <p className="text-xs italic text-[#e5d2da]">„{c.pitchText}“</p>
@@ -930,6 +1014,39 @@ export function GroupPool({
           )}
         </div>
       )}
+      {/* Edit Mask Modal */}
+      {showEditMaskModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-4 overflow-y-auto">
+          <div className="velvet-card gold-shimmer-border relative max-w-lg w-full rounded-3xl p-5 sm:p-6 space-y-4 my-8">
+            <button
+              type="button"
+              onClick={() => setShowEditMaskModal(false)}
+              className="absolute right-4 top-4 cursor-pointer rounded-full p-2 text-[#bfa9b2] hover:bg-white/10"
+              aria-label="Zavřít"
+            >
+              <X className="h-5 w-5" />
+            </button>
+
+            <MaskDesigner
+              maskName={maskName}
+              maskSymbol={maskSymbol}
+              maskStyle={maskStyle}
+              onChangeName={setMaskName}
+              onChangeSymbol={setMaskSymbol}
+              onChangeStyle={setMaskStyle}
+            />
+
+            <button
+              type="button"
+              disabled={loading}
+              onClick={handleSaveMaskUpdate}
+              className="w-full min-h-[48px] cursor-pointer rounded-xl bg-gradient-to-r from-[#8c1832] to-[#b51f3e] py-3 text-xs font-semibold uppercase tracking-widest text-white border border-[#f2d57e]/45"
+            >
+              {loading ? 'Ukládám…' : 'Uložit nový vzhled masky'}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -982,14 +1099,24 @@ function MaskChamberView({
       {/* Top Chamber Match Banner + Safe Eject */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#d4af37]/20 pb-4">
         <div>
-          <p className="text-[11px] uppercase tracking-[0.24em] text-[#d4af37]">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-[#d4af37] mb-1.5">
             Tajná komnata • Identity skryty
           </p>
-          <h3 className="font-serif-display text-2xl sm:text-3xl font-semibold text-[#fff3e2]">
-            {chamber.myMaskSymbol} {chamber.myMaskName}{' '}
-            <span className="text-[#d4af37] mx-1">×</span> {chamber.otherMaskSymbol}{' '}
-            {chamber.otherMaskName}
-          </h3>
+          <div className="flex flex-wrap items-center gap-2.5">
+            <div className="inline-flex items-center gap-2">
+              <MaskAvatar style={chamber.myMaskStyle} symbol={chamber.myMaskSymbol} size="sm" />
+              <span className="font-serif-display text-xl sm:text-2xl font-semibold text-[#fff3e2]">
+                {chamber.myMaskName}
+              </span>
+            </div>
+            <span className="text-[#d4af37] font-serif-display text-2xl">×</span>
+            <div className="inline-flex items-center gap-2">
+              <MaskAvatar style={chamber.otherMaskStyle} symbol={chamber.otherMaskSymbol} size="sm" />
+              <span className="font-serif-display text-xl sm:text-2xl font-semibold text-[#fff3e2]">
+                {chamber.otherMaskName}
+              </span>
+            </div>
+          </div>
         </div>
 
         <button

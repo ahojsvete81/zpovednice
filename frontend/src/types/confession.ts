@@ -91,6 +91,13 @@ export interface CoupleRoomStatus {
 export type PoolHeatMode = 'flirt' | 'night' | 'unleashed';
 export type GenderOption = 'M' | 'F' | 'X';
 export type SeekingOption = 'M' | 'F' | 'Any';
+export type MaskShape = 'venetian' | 'cat' | 'phantom' | 'crown' | 'butterfly';
+
+export interface MaskStyle {
+  shape: MaskShape;
+  color: string;
+  accent: string;
+}
 
 export interface PoolPresets {
   cluePresets: string[];
@@ -102,6 +109,7 @@ export interface PoolMemberMe {
   memberId: string;
   maskName: string;
   maskSymbol: string;
+  maskStyle?: MaskStyle | null;
   gender: GenderOption;
   seeking: SeekingOption;
   clue1: string;
@@ -112,6 +120,7 @@ export interface PoolCatch {
   catchId: string;
   catcherMaskName: string;
   catcherMaskSymbol: string;
+  catcherMaskStyle?: MaskStyle | null;
   pitchText: string;
   status: string;
 }
@@ -120,6 +129,7 @@ export interface PoolSpark {
   id: string;
   authorMaskName: string;
   authorMaskSymbol: string;
+  authorMaskStyle?: MaskStyle | null;
   text: string;
   intentLevel: string;
   isSystemSpark: boolean;
@@ -142,8 +152,10 @@ export interface MaskChamber {
   myRole: 'A' | 'B';
   myMaskName: string;
   myMaskSymbol: string;
+  myMaskStyle?: MaskStyle | null;
   otherMaskName: string;
   otherMaskSymbol: string;
+  otherMaskStyle?: MaskStyle | null;
   otherClue1?: string | null;
   sparkText: string;
   myAnswersSubmitted: boolean;

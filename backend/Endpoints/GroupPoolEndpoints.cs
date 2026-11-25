@@ -18,13 +18,16 @@ public static class GroupPoolEndpoints
             GroupPoolCatalog.MeetingSpots
         )));
 
-        // Create a new Tajný Kruh + auto-join creator as first Mask
-        pool.MapPost("/", async (CreatePoolRequest req, ZpovedniceDbContext db) =>
+        // Create a new Tajný Kruh + auto-join creator with custom or generated Mask
+        pool.MapPost("/", async (CreatePoolRequest req, ZpovedniceDbContext db, SafetyGuardrailService safety) =>
         {
             var clientId = NormalizeClientId(req.ClientId);
             var heat = req.HeatMode is "flirt" or "unleashed" ? req.HeatMode : "night";
             var title = string.IsNullOrWhiteSpace(req.Title) ? "Noční Klášter" : req.Title.Trim();
             if (title.Length > 120) title = title[..120];
+
+            if (!string.IsNullOrWhiteSpace(req.MaskName) && safety.Evaluate(req.MaskName).IsBlocked)
+                return Results.BadRequest(new { error = "Zvol prosím jiný název masky." });
 
             var code = GeneratePoolCode();
             var entity = new GroupPoolEntity
@@ -36,13 +39,14 @@ public static class GroupPoolEndpoints
             };
             db.GroupPools.Add(entity);
 
-            var (maskName, maskSymbol) = GroupPoolCatalog.PickUnusedMask([]);
+            var (maskName, maskSymbol, maskStyle) = ResolveMask(req.MaskName, req.MaskSymbol, req.MaskStyle, []);
             var member = new PoolMemberEntity
             {
                 PoolCode = code,
                 ClientId = clientId,
                 MaskName = maskName,
                 MaskSymbol = maskSymbol,
+                MaskStyleJson = JsonSerializer.Serialize(maskStyle),
                 Gender = NormalizeGender(req.Gender),
                 Seeking = NormalizeSeeking(req.Seeking),
                 Clue1 = string.IsNullOrWhiteSpace(req.Clue1)
@@ -56,13 +60,16 @@ public static class GroupPoolEndpoints
             return Results.Ok(await BuildPoolStateAsync(db, entity, clientId));
         });
 
-        // Join existing Tajný Kruh (idempotent per clientId)
-        pool.MapPost("/{poolCode}/join", async (string poolCode, JoinPoolRequest req, ZpovedniceDbContext db) =>
+        // Join existing Tajný Kruh (idempotent per clientId, supports custom mask design)
+        pool.MapPost("/{poolCode}/join", async (string poolCode, JoinPoolRequest req, ZpovedniceDbContext db, SafetyGuardrailService safety) =>
         {
             var code = poolCode.Trim().ToUpperInvariant();
             var entity = await db.GroupPools.FirstOrDefaultAsync(p => p.PoolCode == code);
             if (entity is null || entity.ExpiresAt < DateTime.UtcNow)
                 return Results.NotFound(new { error = "Tento Tajný Kruh neexistuje nebo už po 12 hodinách shořel." });
+
+            if (!string.IsNullOrWhiteSpace(req.MaskName) && safety.Evaluate(req.MaskName).IsBlocked)
+                return Results.BadRequest(new { error = "Zvol prosím jiný název masky." });
 
             var clientId = NormalizeClientId(req.ClientId);
             var existing = await db.PoolMembers.FirstOrDefaultAsync(m => m.PoolCode == code && m.ClientId == clientId);
@@ -73,13 +80,14 @@ public static class GroupPoolEndpoints
                     .Select(m => m.MaskName)
                     .ToListAsync();
 
-                var (maskName, maskSymbol) = GroupPoolCatalog.PickUnusedMask(usedNames);
+                var (maskName, maskSymbol, maskStyle) = ResolveMask(req.MaskName, req.MaskSymbol, req.MaskStyle, usedNames);
                 var member = new PoolMemberEntity
                 {
                     PoolCode = code,
                     ClientId = clientId,
                     MaskName = maskName,
                     MaskSymbol = maskSymbol,
+                    MaskStyleJson = JsonSerializer.Serialize(maskStyle),
                     Gender = NormalizeGender(req.Gender),
                     Seeking = NormalizeSeeking(req.Seeking),
                     Clue1 = string.IsNullOrWhiteSpace(req.Clue1)
@@ -92,6 +100,36 @@ public static class GroupPoolEndpoints
             }
 
             return Results.Ok(await BuildPoolStateAsync(db, entity, clientId));
+        });
+
+        // Update / Redesign player's own mask anytime while inside the Pool
+        pool.MapPut("/{poolCode}/mask", async (string poolCode, UpdateMaskRequest req, ZpovedniceDbContext db, SafetyGuardrailService safety) =>
+        {
+            var code = poolCode.Trim().ToUpperInvariant();
+            var entity = await db.GroupPools.FirstOrDefaultAsync(p => p.PoolCode == code);
+            if (entity is null) return Results.NotFound(new { error = "Tajný Kruh nenalezen." });
+
+            var cid = NormalizeClientId(req.ClientId);
+            var me = await db.PoolMembers.FirstOrDefaultAsync(m => m.PoolCode == code && m.ClientId == cid);
+            if (me is null) return Results.BadRequest(new { error = "Nejsi členem tohoto Kruhu." });
+
+            if (string.IsNullOrWhiteSpace(req.MaskName) || req.MaskName.Trim().Length < 2)
+                return Results.BadRequest(new { error = "Název masky musí mít alespoň 2 znaky." });
+            if (safety.Evaluate(req.MaskName).IsBlocked)
+                return Results.BadRequest(new { error = "Zvol prosím jiný název masky." });
+
+            var otherNames = await db.PoolMembers
+                .Where(m => m.PoolCode == code && m.Id != me.Id)
+                .Select(m => m.MaskName)
+                .ToListAsync();
+
+            var (resolvedName, resolvedSymbol, resolvedStyle) = ResolveMask(req.MaskName, req.MaskSymbol, req.MaskStyle, otherNames);
+            me.MaskName = resolvedName;
+            me.MaskSymbol = resolvedSymbol;
+            me.MaskStyleJson = JsonSerializer.Serialize(resolvedStyle);
+            await db.SaveChangesAsync();
+
+            return Results.Ok(await BuildPoolStateAsync(db, entity, cid));
         });
 
         // Live state tailored strictly to clientId (auto-polled every 3s on mobile)
@@ -495,6 +533,7 @@ public static class GroupPoolEndpoints
                 ClientId = $"bot_{Guid.NewGuid():N}"[..20],
                 MaskName = maskName,
                 MaskSymbol = maskSymbol,
+                MaskStyleJson = JsonSerializer.Serialize(RandomMaskStyle()),
                 Gender = botGender,
                 Seeking = botSeeking,
                 Clue1 = GroupPoolCatalog.CluePresets[Random.Shared.Next(GroupPoolCatalog.CluePresets.Length)],
@@ -603,7 +642,7 @@ public static class GroupPoolEndpoints
                     .Select(c =>
                     {
                         var catcher = memberMap[c.CatcherMemberId];
-                        return new PoolCatchDto(c.Id, catcher.MaskName, catcher.MaskSymbol, c.PitchText, c.Status);
+                        return new PoolCatchDto(c.Id, catcher.MaskName, catcher.MaskSymbol, ParseMaskStyle(catcher.MaskStyleJson), c.PitchText, c.Status);
                     })
                     .ToList()
                 : [];
@@ -612,6 +651,7 @@ public static class GroupPoolEndpoints
                 Id: s.Id,
                 AuthorMaskName: s.IsSystemSpark ? "Zpovědník Kruhu" : author.MaskName,
                 AuthorMaskSymbol: s.IsSystemSpark ? "🜂" : author.MaskSymbol,
+                AuthorMaskStyle: s.IsSystemSpark ? new MaskStyleDto("crown", "#7d152d", "#f2d57e") : ParseMaskStyle(author.MaskStyleJson),
                 Text: s.Text,
                 IntentLevel: s.IntentLevel,
                 IsSystemSpark: s.IsSystemSpark,
@@ -667,8 +707,10 @@ public static class GroupPoolEndpoints
                     MyRole: isA ? "A" : "B",
                     MyMaskName: me.MaskName,
                     MyMaskSymbol: me.MaskSymbol,
+                    MyMaskStyle: ParseMaskStyle(me.MaskStyleJson),
                     OtherMaskName: other.MaskName,
                     OtherMaskSymbol: other.MaskSymbol,
+                    OtherMaskStyle: ParseMaskStyle(other.MaskStyleJson),
                     OtherClue1: bothAnswered ? other.Clue1 : null,
                     SparkText: spark?.Text ?? string.Empty,
                     MyAnswersSubmitted: !string.IsNullOrWhiteSpace(myAnsJson),
@@ -700,11 +742,69 @@ public static class GroupPoolEndpoints
             OpenSparksCount: openSparks.Count,
             ActiveChambersCount: activeChambersCount,
             CompletedRendezvousCount: completedRendezvousCount,
-            Me: me is null ? null : new PoolMemberMeDto(me.Id, me.MaskName, me.MaskSymbol, me.Gender, me.Seeking, me.Clue1, me.GoldenMatchesLeft),
+            Me: me is null ? null : new PoolMemberMeDto(me.Id, me.MaskName, me.MaskSymbol, ParseMaskStyle(me.MaskStyleJson), me.Gender, me.Seeking, me.Clue1, me.GoldenMatchesLeft),
             Sparks: sparkDtos,
             ActiveChamber: activeChamberDto,
             LastChamberBurnedNotice: lastChamberBurnedNotice
         );
+    }
+
+    private static (string Name, string Symbol, MaskStyleDto Style) ResolveMask(
+        string? requestedName,
+        string? requestedSymbol,
+        MaskStyleDto? requestedStyle,
+        IEnumerable<string> usedNames)
+    {
+        var (fallbackName, fallbackSymbol) = GroupPoolCatalog.PickUnusedMask(usedNames);
+        var used = new HashSet<string>(usedNames, StringComparer.OrdinalIgnoreCase);
+
+        var name = string.IsNullOrWhiteSpace(requestedName) ? fallbackName : requestedName.Trim();
+        if (name.Length > 36) name = name[..36];
+        if (used.Contains(name)) name = $"{name} #{Random.Shared.Next(2, 99)}";
+
+        var symbol = string.IsNullOrWhiteSpace(requestedSymbol) ? fallbackSymbol : requestedSymbol.Trim();
+        if (symbol.Length > 8) symbol = symbol[..8];
+
+        var style = SanitizeMaskStyle(requestedStyle) ?? RandomMaskStyle();
+        return (name, symbol, style);
+    }
+
+    private static MaskStyleDto? SanitizeMaskStyle(MaskStyleDto? style)
+    {
+        if (style is null) return null;
+        var shape = style.Shape is "venetian" or "cat" or "phantom" or "crown" or "butterfly" ? style.Shape : "venetian";
+        var color = IsSafeHex(style.Color) ? style.Color : "#8f1833";
+        var accent = IsSafeHex(style.Accent) ? style.Accent : "#f2d57e";
+        return new MaskStyleDto(shape, color, accent);
+    }
+
+    private static bool IsSafeHex(string? hex) =>
+        !string.IsNullOrWhiteSpace(hex) && hex.Length == 7 && hex[0] == '#' && hex[1..].All(Uri.IsHexDigit);
+
+    private static MaskStyleDto RandomMaskStyle()
+    {
+        string[] shapes = ["venetian", "cat", "phantom", "crown", "butterfly"];
+        string[] colors = ["#8f1833", "#1e1526", "#b58425", "#1b3664", "#155942", "#5a1d5e"];
+        string[] accents = ["#f2d57e", "#dce1ec", "#ff5474", "#d98d62"];
+        return new MaskStyleDto(
+            shapes[Random.Shared.Next(shapes.Length)],
+            colors[Random.Shared.Next(colors.Length)],
+            accents[Random.Shared.Next(accents.Length)]
+        );
+    }
+
+    private static MaskStyleDto ParseMaskStyle(string? json)
+    {
+        if (!string.IsNullOrWhiteSpace(json))
+        {
+            try
+            {
+                var parsed = JsonSerializer.Deserialize<MaskStyleDto>(json);
+                if (parsed is not null) return SanitizeMaskStyle(parsed) ?? RandomMaskStyle();
+            }
+            catch { }
+        }
+        return new MaskStyleDto("venetian", "#8f1833", "#f2d57e");
     }
 
     private static string NormalizeClientId(string? raw)

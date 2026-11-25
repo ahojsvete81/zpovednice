@@ -123,6 +123,9 @@ public static class DbInitializer
             END;
             IF COL_LENGTH('MaskChambers', 'ConfessorVerdict') IS NULL
                 ALTER TABLE MaskChambers ADD ConfessorVerdict NVARCHAR(500) NULL;
+
+            IF COL_LENGTH('PoolMembers', 'MaskStyleJson') IS NULL
+                ALTER TABLE PoolMembers ADD MaskStyleJson NVARCHAR(300) NULL;
             """;
 
         await db.Database.ExecuteSqlRawAsync(upgradeSql);

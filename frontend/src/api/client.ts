@@ -7,6 +7,7 @@ import type {
   GroupPoolState,
   HealthStatus,
   IntensityLevel,
+  MaskStyle,
   Persona,
   PoolHeatMode,
   PoolPresets,
@@ -74,6 +75,9 @@ export const api = {
     gender: GenderOption;
     seeking: SeekingOption;
     clue1: string;
+    maskName?: string;
+    maskSymbol?: string;
+    maskStyle?: MaskStyle;
   }) =>
     request<GroupPoolState>('/api/pool', {
       method: 'POST',
@@ -87,10 +91,27 @@ export const api = {
       gender: GenderOption;
       seeking: SeekingOption;
       clue1: string;
+      maskName?: string;
+      maskSymbol?: string;
+      maskStyle?: MaskStyle;
     }
   ) =>
     request<GroupPoolState>(`/api/pool/${encodeURIComponent(poolCode)}/join`, {
       method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  updateMask: (
+    poolCode: string,
+    payload: {
+      clientId: string;
+      maskName: string;
+      maskSymbol: string;
+      maskStyle: MaskStyle;
+    }
+  ) =>
+    request<GroupPoolState>(`/api/pool/${encodeURIComponent(poolCode)}/mask`, {
+      method: 'PUT',
       body: JSON.stringify(payload),
     }),
 

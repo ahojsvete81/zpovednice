@@ -125,6 +125,12 @@ public record CoupleScenarioDto(
 );
 
 // ─── TAJNÝ KRUH (GROUP POOL FOR 6–30 PEOPLE) ─────────────────────────────────
+public record MaskStyleDto(
+    string Shape,  // "venetian" | "cat" | "phantom" | "crown" | "butterfly"
+    string Color,  // hex base color
+    string Accent  // hex trim/glow color
+);
+
 public record PoolPresetsDto(
     string[] CluePresets,
     string[] QuickSparks,
@@ -137,14 +143,27 @@ public record CreatePoolRequest(
     string HeatMode, // "flirt" | "night" | "unleashed"
     string Gender,   // "M" | "F" | "X"
     string Seeking,  // "M" | "F" | "Any"
-    string Clue1
+    string Clue1,
+    string? MaskName = null,
+    string? MaskSymbol = null,
+    MaskStyleDto? MaskStyle = null
 );
 
 public record JoinPoolRequest(
     string ClientId,
     string Gender,
     string Seeking,
-    string Clue1
+    string Clue1,
+    string? MaskName = null,
+    string? MaskSymbol = null,
+    MaskStyleDto? MaskStyle = null
+);
+
+public record UpdateMaskRequest(
+    string ClientId,
+    string MaskName,
+    string MaskSymbol,
+    MaskStyleDto MaskStyle
 );
 
 public record CreateSparkRequest(
@@ -162,6 +181,7 @@ public record PoolCatchDto(
     Guid CatchId,
     string CatcherMaskName,
     string CatcherMaskSymbol,
+    MaskStyleDto? CatcherMaskStyle,
     string PitchText,
     string Status
 );
@@ -170,6 +190,7 @@ public record PoolSparkDto(
     Guid Id,
     string AuthorMaskName,
     string AuthorMaskSymbol,
+    MaskStyleDto? AuthorMaskStyle,
     string Text,
     string IntentLevel,
     bool IsSystemSpark,
@@ -205,8 +226,10 @@ public record MaskChamberDto(
     string MyRole, // "A" (Proposer) or "B" (Catcher)
     string MyMaskName,
     string MyMaskSymbol,
+    MaskStyleDto? MyMaskStyle,
     string OtherMaskName,
     string OtherMaskSymbol,
+    MaskStyleDto? OtherMaskStyle,
     string? OtherClue1, // Revealed after both complete Stage 1!
     string SparkText,
     bool MyAnswersSubmitted,
@@ -231,6 +254,7 @@ public record PoolMemberMeDto(
     Guid MemberId,
     string MaskName,
     string MaskSymbol,
+    MaskStyleDto? MaskStyle,
     string Gender,
     string Seeking,
     string Clue1,
