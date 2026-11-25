@@ -6,6 +6,8 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+az account set --subscription $SubscriptionId
+
 Write-Host "1/4 Building React + TypeScript frontend..." -ForegroundColor Cyan
 Push-Location frontend
 npm run build
