@@ -1,0 +1,25 @@
+# .NET / C#
+bin/
+obj/
+*.user
+*.suo
+*.cache
+*.log
+.vs/
+appsettings.Development.json
+appsettings.Local.json
+
+# Node / React / Vite
+node_modules/
+dist/
+dist-ssr/
+*.local
+.env
+.env.*
+!.env.example
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
